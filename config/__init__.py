@@ -1,0 +1,1 @@
+"""SmartML Studio — configuration package."""
