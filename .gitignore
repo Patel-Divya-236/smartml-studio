@@ -1,0 +1,43 @@
+# Byte-compiled / optimised / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Logs
+logs/*.log
+
+# Model artifacts
+*.pkl
+*.joblib
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Pytest
+.pytest_cache/
+htmlcov/
+.coverage
+
+# CatBoost training artifacts
+catboost_info/
