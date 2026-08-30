@@ -158,3 +158,35 @@ def test_naive_bayes_is_classification_only():
 
     assert "Naive Bayes" in SUPPORTED_MODELS["Classification"]
     assert "Naive Bayes" not in SUPPORTED_MODELS["Regression"]
+
+
+# ── CORS ──────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "origin, allowed",
+    [
+        ("https://smartml-studio.vercel.app", True),
+        ("https://smartml-studio-divy4.vercel.app", True),
+        ("https://smartml-studio-1jxgy9059-divy4.vercel.app", True),
+        ("http://localhost:5173", True),
+        # A blanket *.vercel.app rule would let any Vercel-hosted site call this API.
+        ("https://someone-elses-app.vercel.app", False),
+        # Suffix attack: the project name must not merely be a prefix of the host.
+        ("https://smartml-studio.vercel.app.attacker.com", False),
+        # The pattern is https-only; plain http must not match.
+        ("http://smartml-studio.vercel.app", False),
+    ],
+)
+def test_cors_allows_only_this_projects_origins(origin, allowed):
+    """Deployment hostnames change, so they are matched by pattern rather than pinned.
+
+    The pattern still has to be tight: it is anchored to this project's name and to
+    https, so it cannot be widened by a lookalike host.
+    """
+    import re
+
+    from backend.main import ALLOWED_ORIGINS, VERCEL_ORIGIN_PATTERN
+
+    matched = origin in ALLOWED_ORIGINS or bool(re.match(VERCEL_ORIGIN_PATTERN, origin))
+    assert matched is allowed

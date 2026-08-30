@@ -36,7 +36,7 @@ app = FastAPI(
 )
 
 # The Vite dev server runs on a different port, so the browser treats API calls as
-# cross-origin. Allowed origins are explicit rather than "*" because credentials and the
+# cross-origin. Origins are listed explicitly rather than "*" because credentials and the
 # session header are involved.
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -48,9 +48,21 @@ extra = os.getenv("SMARTML_ALLOWED_ORIGINS")
 if extra:
     ALLOWED_ORIGINS.extend(o.strip() for o in extra.split(",") if o.strip())
 
+# Vercel gives one deployment several hostnames -- the project alias, an account-scoped
+# alias, and a unique URL per deployment -- and mints a fresh one for every preview build.
+# Pinning them by hand means the API breaks quietly on the next deploy, so the project's
+# own subdomains are matched by pattern instead. The pattern is anchored to this project's
+# name: it is deliberately not a blanket `*.vercel.app`, which would let any site hosted
+# on Vercel call this API.
+VERCEL_ORIGIN_PATTERN = os.getenv(
+    "SMARTML_ALLOWED_ORIGIN_REGEX",
+    r"^https://smartml-studio[a-z0-9-]*\.vercel\.app$",
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=VERCEL_ORIGIN_PATTERN,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
