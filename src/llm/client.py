@@ -42,7 +42,11 @@ class LLMClient:
         timeout: float | None = None,
     ) -> None:
         """Resolve configuration from arguments, then environment, then SETTINGS."""
-        self.api_key = api_key or os.environ.get("LLM_API_KEY", "")
+        # Stripped because a key pasted into a hosting provider's environment field
+        # very often carries a trailing newline. That newline is illegal in an HTTP
+        # header value, so the request fails before it is sent with an error naming
+        # header parsing rather than the key — which reads like a code fault.
+        self.api_key = (api_key or os.environ.get("LLM_API_KEY", "")).strip()
         self.base_url = (base_url or os.environ.get("LLM_BASE_URL") or SETTINGS.LLM_BASE_URL).rstrip("/")
         self.model = model or os.environ.get("LLM_MODEL") or SETTINGS.LLM_MODEL
         self.timeout = timeout if timeout is not None else SETTINGS.LLM_TIMEOUT_SECONDS

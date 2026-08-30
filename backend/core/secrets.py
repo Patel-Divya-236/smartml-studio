@@ -56,7 +56,9 @@ def load_llm_env(root: Path | None = None) -> list[str]:
                 continue
             value = values.get(key)
             if value:
-                os.environ[key] = str(value)
+                # Stripped for the same reason the client strips: stray whitespace in a
+                # credential is invisible in a dashboard field and breaks the request.
+                os.environ[key] = str(value).strip()
                 loaded.append(key)
 
         # Never log the values themselves — one of them is an API key.

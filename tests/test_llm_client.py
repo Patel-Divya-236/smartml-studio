@@ -161,3 +161,34 @@ def test_list_models_returns_sorted_ids(monkeypatch):
         lambda *a, **k: FakeResponse(200, {"data": [{"id": "zeta"}, {"id": "alpha"}]}),
     )
     assert LLMClient(api_key="k").list_models() == ["alpha", "zeta"]
+
+
+# ── Credential hygiene ────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["gsk_abc123\n", "gsk_abc123\r\n", "  gsk_abc123  ", "\tgsk_abc123", "gsk_abc123"],
+)
+def test_api_key_whitespace_is_stripped(monkeypatch, raw):
+    """A key pasted into a hosting dashboard usually carries a trailing newline.
+
+    A newline is illegal in an HTTP header value, so `requests` refuses to send the
+    request at all — and the resulting error names header parsing, not the credential,
+    which reads like a bug in this code rather than a stray character in a config field.
+    """
+    monkeypatch.setenv("LLM_API_KEY", raw)
+    key = LLMClient().api_key
+
+    assert key == "gsk_abc123"
+    assert "\n" not in key and "\r" not in key
+
+
+def test_authorization_header_is_valid_after_stripping(monkeypatch):
+    """The header the client builds must be sendable as-is."""
+    monkeypatch.setenv("LLM_API_KEY", "gsk_abc123\n")
+    client = LLMClient()
+    header = f"Bearer {client.api_key}"
+
+    assert header == "Bearer gsk_abc123"
+    assert not any(c in header for c in "\r\n")
