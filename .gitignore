@@ -20,7 +20,9 @@ env/
 *.swp
 *.swo
 
-# Streamlit
+# Secrets
+secrets.toml
+.secrets.toml
 .streamlit/secrets.toml
 
 # Logs

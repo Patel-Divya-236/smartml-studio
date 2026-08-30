@@ -12,7 +12,9 @@ and a **plain-English reason**. Nothing runs automatically; you always make the 
 <br>
 
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)
+![React](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?style=for-the-badge&logo=scikitlearn&logoColor=white)
 ![NumPy](https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white)
 ![pandas](https://img.shields.io/badge/pandas-150458?style=for-the-badge&logo=pandas&logoColor=white)
@@ -77,14 +79,15 @@ You see the recommendation, the confidence and the reasoning — then you decide
 
 | Layer | Technology |
 |---|---|
-| **Frontend** | Streamlit (multipage app, custom theme) |
+| **Frontend** | React 19 + TypeScript + Vite — single-page workspace, light/dark design system |
+| **Backend** | FastAPI — REST plus a WebSocket for live training progress |
 | **Language** | Python 3.10+ — modular and object-oriented |
 | **ML libraries** | scikit-learn · XGBoost · LightGBM · CatBoost |
 | **Custom algorithms** | SVM (hinge loss + GD) · kNN — implemented from scratch in NumPy |
 | **Explainability** | SHAP |
 | **Data** | pandas · NumPy · openpyxl |
 | **Visualisation** | Plotly · Matplotlib · Seaborn |
-| **Testing** | pytest — 11 suites |
+| **Testing** | pytest |
 | **Optional LLM layer** | Any OpenAI-compatible provider (Groq, OpenRouter, Together, Cerebras, …) |
 
 ---
@@ -128,24 +131,36 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 # 3. Install dependencies
 pip install -r requirements.txt
 
-# 4. Launch the app
-streamlit run app.py
+# 4. Install frontend dependencies
+cd frontend && npm install && cd ..
+
+# 5. Launch both servers
+python run_dev.py
 ```
 
-The app opens at **http://localhost:8501**. Upload any CSV and start at step 1.
+The app opens at **http://localhost:5173**, the API docs at
+**http://127.0.0.1:8000/docs**. Upload any CSV and start at step 1.
+
+To run them separately:
+
+```bash
+python -m uvicorn backend.main:app --reload --port 8000
+cd frontend && npm run dev
+```
 
 ---
 
 ## Optional: AI-Written Explanations
 
-Two screens can add plain-English narration — an explanation of individual predictions on
-the **Explainable AI** page, and an executive summary in the downloadable report.
+Several screens can add plain-English narration — why an advisor recommended a step, what
+drives a model overall, why one prediction came out as it did, and an executive summary in
+the report.
 
 **This is entirely optional.** Without a key the app behaves exactly as it otherwise
 would, using the standard static explanations.
 
 ```bash
-cp .streamlit/secrets.toml.example .streamlit/secrets.toml
+cp secrets.toml.example secrets.toml
 # then edit the file and add your provider API key
 ```
 
@@ -168,7 +183,18 @@ Any OpenAI-compatible provider works. Defaults live in `config/settings.py`; the
 
 ```
 smartml-studio/
-├── app.py                      # Streamlit entry point
+├── run_dev.py                  # Starts the API and the web app together
+├── backend/
+│   ├── main.py                 # FastAPI application
+│   ├── api/                    # Route modules, one per pipeline stage
+│   └── core/                   # Session store, JSON serialisation, secrets
+├── frontend/
+│   └── src/
+│       ├── api/                # Typed client
+│       ├── store/              # Step order, locking, completion
+│       ├── theme/              # Design tokens, light and dark
+│       ├── components/         # Shell, primitives, charts
+│       └── steps/              # One screen per pipeline module
 ├── config/
 │   ├── settings.py             # Central configuration
 │   └── logging_config.py       # Logging setup
@@ -180,9 +206,9 @@ smartml-studio/
 │   ├── models/                 # Model trainer + custom SVM / kNN
 │   ├── ensemble/               # Hybrid voting ensemble
 │   ├── explainability/         # SHAP explainer
+│   ├── evaluation/             # Comparison metrics, feature importance
+│   ├── reporting/              # Markdown report builder
 │   └── llm/                    # Optional narration layer
-├── pages/                      # The 11 Streamlit pages
-├── utils/                      # Session state, styling, LLM config
 └── tests/                      # pytest suite
 ```
 
