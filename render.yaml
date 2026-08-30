@@ -1,0 +1,27 @@
+# Deployment for the SmartML Studio API.
+#
+# The backend needs a long-lived process, not serverless functions: it holds pipeline
+# state in memory between requests, runs training on a background thread, and serves
+# training progress over a WebSocket. It also depends on ~700MB of ML libraries, which
+# is well past any serverless bundle limit.
+services:
+  - type: web
+    name: smartml-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      # The deployed frontend's origin, so the browser is allowed to call this API.
+      - key: SMARTML_ALLOWED_ORIGINS
+        sync: false
+      # Optional: enables the AI explanation buttons. Leave unset to run without them.
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: LLM_MODEL
+        value: openai/gpt-oss-120b
