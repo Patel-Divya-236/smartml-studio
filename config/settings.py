@@ -82,6 +82,33 @@ class AppSettings:
     )
     """Confidence-to-star-rating breakpoints (1★ … 5★)."""
 
+    # ── LLM Explanation Layer ──────────────────────────────────────
+    # The LLM narrates deterministic outputs; it never makes a decision.
+    # Any OpenAI-compatible provider works — set LLM_BASE_URL / LLM_MODEL / LLM_API_KEY
+    # in the environment (or secrets.toml) to point at a different one.
+
+    LLM_BASE_URL: str = "https://api.groq.com/openai/v1"
+    """OpenAI-compatible chat-completions base URL. Overridable via LLM_BASE_URL."""
+
+    LLM_MODEL: str = "openai/gpt-oss-120b"
+    """Model id on the chosen provider. Model ids change — if requests 404, list the
+    provider's current models with LLMClient.list_models() and set LLM_MODEL."""
+
+    LLM_MAX_TOKENS: int = 900
+    """Output cap per narration. These are short prose tasks, not long generations."""
+
+    LLM_TEMPERATURE: float = 0.3
+    """Low temperature: narration should track the numbers, not embellish them."""
+
+    LLM_TIMEOUT_SECONDS: float = 60.0
+    """Hard timeout per request. On timeout the caller falls back to static text."""
+
+    LLM_MAX_SHAP_FEATURES: int = 10
+    """Top-N SHAP attributions (by absolute magnitude) sent per prediction."""
+
+    LLM_MAX_CORRELATIONS: int = 5
+    """Top-N strongest feature correlations included in the report payload."""
+
 
 # ── Module-level singleton ─────────────────────────────────────────
 SETTINGS = AppSettings()

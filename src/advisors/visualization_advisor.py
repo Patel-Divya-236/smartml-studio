@@ -45,13 +45,13 @@ class VisualizationAdvisor(BaseAdvisor):
             )
 
         # 2. Target Distribution
-        # Find target column in profile or settings
-        # We can assume class balance is populated for classification
+        # The task type comes from the user's confirmed choice, carried through the
+        # profile. A continuous target still has a populated target_summary, so the
+        # histogram branch below fires for regression.
         class_balance = profile.get("class_balance", {})
         target_summary = profile.get("target_summary", {})
-        
-        # We check target columns by looking at class balance or target summary presence
-        has_class_target = len(class_balance) > 0
+
+        has_class_target = profile.get("problem_type") == "Classification" and len(class_balance) > 0
         has_numeric_target = len(target_summary) > 0
 
         if has_class_target:

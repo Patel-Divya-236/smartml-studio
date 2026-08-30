@@ -29,12 +29,11 @@ class ModelAdvisor(BaseAdvisor):
         recs = []
 
         rows = profile.get("shape", (100, 2))[0]
-        # We can assume problem type is stored or derived.
-        # Since the session state target/problem_type drives this, we'll recommend for both types
-        # depending on if class balance exists (indicating classification).
-        class_balance = profile.get("class_balance", {})
-        is_classification = len(class_balance) > 0
-        
+        # The task type comes from the user's confirmed choice on the upload page,
+        # carried through the profile. Anything that is not Classification (Regression
+        # and Time Series alike) takes the continuous-target branch below.
+        is_classification = profile.get("problem_type") == "Classification"
+
         categorical_cols = profile.get("categorical_columns", [])
         has_categorical = len(categorical_cols) > 0
 
@@ -118,36 +117,37 @@ class ModelAdvisor(BaseAdvisor):
                 )
             )
 
-            # 7. Custom SVM (implemented from scratch)
+            # 7. SVM Classifier
             recs.append(
                 Recommendation(
-                    label="Custom SVM (From Scratch)",
-                    confidence_score=0.85 if rows < SETTINGS.SMALL_DATASET_ROWS else 0.55,
-                    reason=f"From-scratch linear/RBF SVM. Works best on small datasets (current size: {rows} rows).",
-                    why_explanation="Our custom Support Vector Machine optimizes the margin using hinge loss and "
-                                    "gradient descent. Since it is implemented from scratch in pure Python, it is ideal "
-                                    "for smaller datasets, as it runs slower on large scale datasets than C-based library packages.",
+                    label="SVM Classifier",
+                    confidence_score=0.85 if rows < SETTINGS.SMALL_DATASET_ROWS else 0.65,
+                    reason=f"Support Vector Machine. Works well for both linear and non-linear boundaries (current size: {rows} rows).",
+                    why_explanation="Support Vector Machine maximizes the margin between different classes. "
+                                    "It supports both linear and kernel-based (non-linear) boundaries for complex feature distributions.",
                     category="Classification",
-                    metadata={"model_name": "Custom SVM"}
+                    metadata={"model_name": "SVM"}
                 )
             )
 
-            # 8. Custom KNN (implemented from scratch)
+            # 8. KNN Classifier
             recs.append(
                 Recommendation(
-                    label="Custom KNN (From Scratch)",
-                    confidence_score=0.86 if rows < SETTINGS.SMALL_DATASET_ROWS else 0.58,
-                    reason=f"From-scratch k-Nearest Neighbours. Works best on small datasets (current size: {rows} rows).",
-                    why_explanation="Our custom kNN computes pairwise distances directly using NumPy. It handles distance-based "
-                                    "neighborhood classification with configurable metric. As a non-parametric model, "
-                                    "its prediction time scales with dataset size, making it most suitable for small datasets.",
+                    label="KNN Classifier",
+                    confidence_score=0.86 if rows < SETTINGS.SMALL_DATASET_ROWS else 0.60,
+                    reason=f"k-Nearest Neighbours. Easy to interpret and non-parametric (current size: {rows} rows).",
+                    why_explanation="kNN computes pairwise distances to classify samples based on proximity. "
+                                    "As a non-parametric model, it makes no strong assumptions about distribution shapes.",
                     category="Classification",
-                    metadata={"model_name": "Custom KNN"}
+                    metadata={"model_name": "KNN"}
                 )
             )
+
         
         else:
-            # Regression models
+            # Continuous-target models. Time Series shares this branch: the app ships no
+            # forecasting-specific estimators, so a datetime-indexed target is modelled
+            # as ordinary regression over its features.
             recs.append(
                 Recommendation(
                     label="XGBoost Regressor",

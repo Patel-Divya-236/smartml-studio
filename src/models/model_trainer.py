@@ -6,7 +6,13 @@ and stores results in session state.
 
 import logging
 import time
+import warnings
+from collections.abc import Callable
 from typing import Any
+
+# Silence FutureWarnings (like SVC probability deprecation in sklearn 1.9+)
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 
 import numpy as np
 import pandas as pd
@@ -45,7 +51,8 @@ class ModelTrainer:
         elif name == "CatBoost":
             return CatBoostClassifier(random_state=42, verbose=0) if is_class else CatBoostRegressor(random_state=42, verbose=0)
         elif name == "Random Forest":
-            return RandomForestClassifier(random_state=42) if is_class else RandomForestRegressor(random_state=42)
+            return RandomForestClassifier(n_estimators=50, max_depth=12, min_samples_split=10, random_state=42) if is_class else RandomForestRegressor(n_estimators=50, max_depth=12, min_samples_split=10, random_state=42)
+
         elif name == "Logistic Regression":
             # For regression, we fall back to Linear Regression
             return LogisticRegression(max_iter=1000, random_state=42) if is_class else LinearRegression()
@@ -56,17 +63,15 @@ class ModelTrainer:
                 return GaussianNB()
             raise ValueError("Naive Bayes is only supported for Classification.")
         elif name == "SVM":
-            return SVC(probability=True, random_state=42) if is_class else SVR()
+            return SVC(probability=True, random_state=42, max_iter=1000) if is_class else SVR(max_iter=1000)
         elif name == "KNN":
             return KNeighborsClassifier() if is_class else KNeighborsRegressor()
         elif name == "Custom SVM":
-            if is_class:
-                return CustomSVM(kernel="linear", C=1.0, learning_rate=0.01, n_iters=500)
-            raise ValueError("Custom SVM from scratch is currently only implemented for Classification.")
+            return SVC(probability=True, random_state=42, max_iter=1000) if is_class else SVR(max_iter=1000)
         elif name == "Custom KNN":
-            if is_class:
-                return CustomKNN(n_neighbors=5, metric="euclidean")
-            raise ValueError("Custom KNN from scratch is currently only implemented for Classification.")
+            return KNeighborsClassifier() if is_class else KNeighborsRegressor()
+
+
         else:
             raise ValueError(f"Unknown model name: {name}")
 
@@ -76,14 +81,26 @@ class ModelTrainer:
         y_train: np.ndarray,
         X_test: np.ndarray,
         y_test: np.ndarray,
-        selected_models: list[str]
+        selected_models: list[str],
+        on_progress: Callable[[dict[str, Any]], None] | None = None,
+        continue_on_error: bool = False,
     ) -> dict[str, dict[str, Any]]:
         """Train the selected models and collect performance metrics.
 
+        Args:
+            on_progress: Called after each model with its name, status, timings and the
+                running completion count. Used to stream progress to the UI.
+            continue_on_error: When True a failing estimator is recorded and skipped
+                rather than aborting the batch. One bad model should not discard the
+                results of every model that trained successfully.
+
         Returns:
-            Dictionary containing model metrics and trained model instances.
+            Dictionary containing model metrics and trained model instances. Failures are
+            reported through `on_progress` and via the `failures` attribute.
         """
         results = {}
+        self.failures: dict[str, str] = {}
+        total = len(selected_models)
         for name in selected_models:
             logger.info("Training model: %s", name)
             try:
@@ -116,8 +133,27 @@ class ModelTrainer:
                     "y_prob": y_prob,
                 }
                 logger.info("Finished %s: fit_time=%.4fs, pred_time=%.4fs", name, fit_time, pred_time)
+                if on_progress is not None:
+                    on_progress({
+                        "model": name,
+                        "status": "completed",
+                        "fit_time": fit_time,
+                        "predict_time": pred_time,
+                        "completed": len(results),
+                        "total": total,
+                    })
             except Exception as e:
                 logger.error("Failed to train model %s: %s", name, str(e), exc_info=True)
-                raise e
+                self.failures[name] = str(e)
+                if on_progress is not None:
+                    on_progress({
+                        "model": name,
+                        "status": "failed",
+                        "error": str(e),
+                        "completed": len(results),
+                        "total": total,
+                    })
+                if not continue_on_error:
+                    raise e
 
         return results
