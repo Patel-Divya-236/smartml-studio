@@ -1,0 +1,236 @@
+/*
+ * SmartML Studio design system.
+ *
+ * One source of truth for colour, spacing, type and elevation. Components reference
+ * tokens only — no component declares a raw hex value, which is what keeps eleven
+ * screens looking like one application.
+ *
+ * The palette is a data-science workstation, not a marketing site: flat surfaces,
+ * hairline borders, one accent that means "primary action", and semantic colours that
+ * always mean the same thing. No gradients, no glow, no glassmorphism.
+ */
+
+:root {
+  /* ── Light theme: warm neutral surfaces, teal accent ────────────── */
+  --bg: #f6f5f2;
+  --bg-subtle: #efedE8;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-hover: #f4f2ee;
+  --surface-sunken: #faf9f7;
+  --sidebar: #ffffff;
+  --sidebar-active: #eaf5f3;
+
+  --border: #e3dfd7;
+  --border-strong: #cdc7bc;
+  --border-focus: #128c82;
+
+  --text: #1b2523;
+  --text-secondary: #46534f;
+  --text-muted: #77837f;
+  --text-inverse: #ffffff;
+
+  --primary: #128c82;
+  --primary-hover: #0e7269;
+  --primary-soft: #e0f0ee;
+  --primary-border: #9dcdc7;
+
+  --accent: #c8892b;          /* ochre — recommendations */
+  --accent-soft: #fbf1de;
+  --accent-border: #e6c98d;
+
+  --action: #de6a28;          /* copper — important actions */
+  --action-hover: #c55a1e;
+  --action-soft: #fdeee4;
+
+  --success: #4d8b58;
+  --success-soft: #e6f1e8;
+  --warning: #b9822a;
+  --warning-soft: #fbf1de;
+  --danger: #c0492f;
+  --danger-soft: #fbe9e5;
+  --info: #2f7d8c;
+  --info-soft: #e3f0f2;
+
+  /* Chart series — ordered for categorical use, distinguishable in both themes. */
+  --chart-1: #128c82;
+  --chart-2: #de6a28;
+  --chart-3: #c8892b;
+  --chart-4: #4d8b58;
+  --chart-5: #6a7fa8;
+  --chart-6: #a05a8a;
+  --chart-grid: #e3dfd7;
+
+  --shadow-sm: 0 1px 2px rgba(27, 37, 35, 0.06);
+  --shadow-md: 0 2px 8px rgba(27, 37, 35, 0.08);
+
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  /* ── Dark theme: deep blue-green charcoal, teal accent ──────────── */
+  --bg: #071316;
+  --bg-subtle: #091a1e;
+  --surface: #102126;
+  --surface-raised: #14282e;
+  --surface-hover: #172f36;
+  --surface-sunken: #0b1c20;
+  --sidebar: #0b1c20;
+  --sidebar-active: #16323a;
+
+  --border: #1d353c;
+  --border-strong: #2a4750;
+  --border-focus: #2aafa3;
+
+  --text: #e8eeeb;
+  --text-secondary: #b8c7c4;
+  --text-muted: #91a5a2;
+  --text-inverse: #071316;
+
+  --primary: #2aafa3;
+  --primary-hover: #35c4b7;
+  --primary-soft: #12312f;
+  --primary-border: #24625c;
+
+  --accent: #d6a83f;
+  --accent-soft: #30281433;
+  --accent-border: #6b5423;
+
+  --action: #e87532;
+  --action-hover: #f28a4d;
+  --action-soft: #33201433;
+
+  --success: #6faf78;
+  --success-soft: #16291a33;
+  --warning: #d6a83f;
+  --warning-soft: #30281433;
+  --danger: #d9695a;
+  --danger-soft: #33191633;
+  --info: #4d9bab;
+  --info-soft: #10262b33;
+
+  --chart-1: #2aafa3;
+  --chart-2: #e87532;
+  --chart-3: #d6a83f;
+  --chart-4: #6faf78;
+  --chart-5: #7f95c4;
+  --chart-6: #bd7fa8;
+  --chart-grid: #1d353c;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.35);
+
+  color-scheme: dark;
+}
+
+:root {
+  /* ── Scales, shared across themes ───────────────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-pill: 999px;
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 26px;
+  --text-3xl: 32px;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  --sidebar-width: 232px;
+  --header-height: 56px;
+
+  --transition: 120ms ease;
+}
+
+/* ── Reset ────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+figure {
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+/* Scrollbars sit inside panels constantly here, so they are styled to recede. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 3px solid var(--bg);
+  border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}

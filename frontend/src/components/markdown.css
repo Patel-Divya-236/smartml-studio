@@ -1,0 +1,111 @@
+/* Rendered evaluation report. Tokens only — it re-themes with the rest of the app. */
+
+.md {
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+}
+
+.md > *:first-child { margin-top: 0; }
+
+.md-h1 {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--space-4);
+}
+
+.md-h2 {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text);
+  margin: var(--space-6) 0 var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.md-h3,
+.md-h4 {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text);
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+.md-p { margin: 0 0 var(--space-3); }
+
+.md-list {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-5);
+  list-style: none;
+}
+
+.md-list li {
+  position: relative;
+  margin-bottom: var(--space-2);
+}
+
+.md-list li::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--space-4) * -1);
+  top: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.md-list li[data-depth='1'] { padding-left: var(--space-4); }
+.md-list li[data-depth='1']::before { left: 0; background: var(--border-strong); }
+
+.md strong { color: var(--text); font-weight: 600; }
+
+.md-code {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  color: var(--text);
+}
+
+.md-rule {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: var(--space-6) 0 var(--space-4);
+}
+
+/* Wide metric tables scroll inside the report rather than stretching the page. */
+.md-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+}
+
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.md-table th,
+.md-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.md-table th {
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.md-table td { color: var(--text); }
+.md-table tbody tr:last-child td { border-bottom: none; }
+.md-table .num { text-align: right; font-variant-numeric: tabular-nums; }
