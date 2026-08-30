@@ -8,7 +8,7 @@ from src.profiling.dataset_profiler import DatasetProfiler
 def test_preprocessing_advisor_recommendations(sample_classification_df):
     """Test that preprocessing advisor generates appropriate recommendations."""
     df = sample_classification_df
-    profiler = DatasetProfiler(df, target_column="target")
+    profiler = DatasetProfiler(df, target_column="target", problem_type="Classification")
     profile = profiler.compute_profile()
 
     advisor = PreprocessingAdvisor()
