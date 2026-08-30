@@ -132,3 +132,29 @@ def test_finite_check_does_not_reject_zero():
     assert to_jsonable(0) == 0
     assert to_jsonable(0.0) == 0.0
     assert not math.isnan(to_jsonable(0.0))
+
+
+# ── Model catalogue ───────────────────────────────────────────────────
+
+
+def test_every_advertised_model_can_actually_be_built():
+    """The API must not offer a model the trainer cannot instantiate.
+
+    Regression: the endpoint kept its own hardcoded list, which had drifted to include
+    "Decision Tree" — a name `_get_model_instance` rejects. Selecting it failed at
+    training time with no earlier warning.
+    """
+    from src.models.model_trainer import SUPPORTED_MODELS, ModelTrainer
+
+    for task, names in SUPPORTED_MODELS.items():
+        trainer = ModelTrainer(task)
+        for name in names:
+            trainer._get_model_instance(name)  # raises ValueError on an unknown name
+
+
+def test_naive_bayes_is_classification_only():
+    """It has no regression form, so it must not be advertised for one."""
+    from src.models.model_trainer import SUPPORTED_MODELS
+
+    assert "Naive Bayes" in SUPPORTED_MODELS["Classification"]
+    assert "Naive Bayes" not in SUPPORTED_MODELS["Regression"]

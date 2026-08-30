@@ -33,6 +33,22 @@ from src.models.custom_knn import CustomKNN
 logger = logging.getLogger(__name__)
 
 
+#: Model names this trainer can instantiate, per task type. The API serves this list
+#: rather than its own copy — a hardcoded duplicate drifted once already and offered
+#: "Decision Tree", which `_get_model_instance` does not know how to build.
+SUPPORTED_MODELS: dict[str, list[str]] = {
+    "Classification": [
+        "XGBoost", "LightGBM", "CatBoost", "Random Forest",
+        "Logistic Regression", "Naive Bayes", "SVM", "KNN",
+        "Custom SVM", "Custom KNN",
+    ],
+    "Regression": [
+        "XGBoost", "LightGBM", "CatBoost", "Random Forest",
+        "Linear Regression", "SVM", "KNN",
+    ],
+}
+
+
 class ModelTrainer:
     """Orchestrates model training across selected algorithms."""
 

@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from backend.api.deps import get_session, require
 from backend.core.session import STORE, Session
 from src.evaluation.metrics import compute_metrics
-from src.models.model_trainer import ModelTrainer
+from src.models.model_trainer import SUPPORTED_MODELS, ModelTrainer
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/training", tags=["training"])
@@ -117,20 +117,14 @@ def _run_training(job: Job, session: Session, models: list[str]) -> None:
 
 @router.get("/available")
 def available_models(session: Session = Depends(get_session)) -> dict:
-    """List the models valid for the current task type."""
+    """List the models valid for the current task type.
+
+    Read from the trainer so the two can never disagree. Time Series shares the
+    continuous-target branch, as it does everywhere else in the pipeline.
+    """
     problem_type = session.get("problem_type") or "Classification"
-    classification = [
-        "XGBoost", "LightGBM", "CatBoost", "Random Forest", "Decision Tree",
-        "Logistic Regression", "Naive Bayes", "SVM", "KNN",
-    ]
-    regression = [
-        "XGBoost", "LightGBM", "CatBoost", "Random Forest", "Decision Tree",
-        "Linear Regression", "SVM", "KNN",
-    ]
-    return {
-        "models": classification if problem_type == "Classification" else regression,
-        "problem_type": problem_type,
-    }
+    key = "Classification" if problem_type == "Classification" else "Regression"
+    return {"models": list(SUPPORTED_MODELS[key]), "problem_type": problem_type}
 
 
 @router.post("/jobs")
