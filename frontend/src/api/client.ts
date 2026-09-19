@@ -73,8 +73,27 @@ export function resetSession(): void {
 
 /** Default budget. Generous, because the server may be cold-starting. */
 const DEFAULT_TIMEOUT_MS = 30_000;
-/** For uploads, preprocessing and training, which do real work before replying. */
+/** For preprocessing and training, which do real work before replying. */
 export const LONG_TIMEOUT_MS = 120_000;
+
+/**
+ * Upload budget, derived from the bytes actually being sent.
+ *
+ * A fixed cap cannot work here: measured throughput to the deployed API was ~0.33 MB/s, so
+ * a 30MB file legitimately needs over a minute on the wire. A flat 120s aborted uploads
+ * that were progressing normally and would have finished.
+ *
+ * The floor assumes a pessimistic 100 KB/s so a slow connection is not punished, plus a
+ * minute of headroom for a cold start and server-side parsing. The ceiling exists so a
+ * genuinely dead connection still fails rather than hanging forever.
+ */
+const UPLOAD_FLOOR_BYTES_PER_SEC = 100_000;
+const UPLOAD_MAX_TIMEOUT_MS = 15 * 60_000;
+
+function uploadTimeoutFor(bytes: number): number {
+  const transfer = (bytes / UPLOAD_FLOOR_BYTES_PER_SEC) * 1000;
+  return Math.min(UPLOAD_MAX_TIMEOUT_MS, Math.max(LONG_TIMEOUT_MS, transfer + 60_000));
+}
 
 /** Status used for failures that never reached the server, so they read like any other. */
 const NETWORK_ERROR = 0;
@@ -272,7 +291,7 @@ export const api = {
 
     return request<UploadResult>('/datasets', {
       formData: form,
-      timeoutMs: LONG_TIMEOUT_MS,
+      timeoutMs: uploadTimeoutFor(packed ? packed.size : file.size),
       headers: packed ? { 'X-Upload-Encoding': 'gzip' } : undefined,
     });
   },

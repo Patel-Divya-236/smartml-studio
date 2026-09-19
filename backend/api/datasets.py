@@ -26,10 +26,32 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 MAX_UPLOAD_LABEL = "50MB"  # keep in sync with the copy in UploadStep.tsx
 PREVIEW_ROWS = 50
 
-# A text column whose values are overwhelmingly numeric is a numeric column with dirty
-# entries ("NA", "-", a stray footnote), not a category. Left as object dtype it reaches
-# the encoders as tens of thousands of distinct "categories" and blows up memory.
-NUMERIC_COERCION_RATIO = 0.9
+# A text column whose values are mostly numeric is a numeric column with dirty entries
+# ("NA", "-", a stray footnote), not a category. Left as text it reaches the encoders as
+# tens of thousands of distinct "categories" and blows up memory.
+#
+# Half is deliberately lenient. A real categorical column ("Delhi", "Mumbai") converts at
+# essentially 0%, so there is a wide gap between the two cases; a stricter 90% rejected
+# real sensor columns that were only 83% clean and left them to be encoded.
+NUMERIC_COERCION_RATIO = 0.5
+
+# Deciding on a sample first is what keeps this cheap. Converting a whole column to find
+# out it is text cost more than parsing the file did — measured at 2.2s against 1.4s for
+# `read_csv` on a 45MB upload, which on a throttled CPU is twenty seconds of the user's
+# time spent proving that "City" is not a number.
+COERCION_SAMPLE_ROWS = 2_000
+
+# Placeholders pandas does not already treat as missing. Sensor exports are full of them,
+# and one of these in a column is enough to make the whole column text.
+#
+# Declaring them at parse time rather than repairing afterwards is much cheaper: pandas
+# builds a float column directly instead of building Python strings and converting them.
+# On a 45MB upload that was 3.0s of work against 0.6s — five times faster, and faster than
+# plain `read_csv` was to begin with.
+EXTRA_NA_VALUES = [
+    "-", "--", "---", "?", "??", "None", "none", "NONE",
+    "missing", "Missing", "MISSING", "N.A.", "n.a.", "NIL", "nil",
+]
 
 # Uploads are network-bound, not CPU-bound: measured throughput from a browser to the
 # deployed API was ~0.33 MB/s, so a 4MB CSV spent ~12s on the wire and under a second
@@ -64,6 +86,14 @@ def _coerce_numeric_like(df: pd.DataFrame) -> list[str]:
             or pd.api.types.is_datetime64_any_dtype(original)
             or isinstance(original.dtype, pd.CategoricalDtype)
         ):
+            continue
+
+        # Decide on a sample before touching the whole column. Text columns are rejected
+        # after a couple of thousand rows instead of several hundred thousand.
+        sample = original.dropna().head(COERCION_SAMPLE_ROWS)
+        if sample.empty:
+            continue
+        if pd.to_numeric(sample, errors="coerce").notna().mean() < NUMERIC_COERCION_RATIO:
             continue
 
         present = original.notna().sum()
@@ -107,10 +137,12 @@ def _parse_upload(raw: bytes, name: str) -> tuple[pd.DataFrame, list[str]]:
     session. Hence `to_thread.run_sync` at the call site.
     """
     if name.lower().endswith((".xlsx", ".xls")):
-        df = pd.read_excel(io.BytesIO(raw))
+        df = pd.read_excel(io.BytesIO(raw), na_values=EXTRA_NA_VALUES)
     else:
-        df = pd.read_csv(io.BytesIO(raw))
+        df = pd.read_csv(io.BytesIO(raw), na_values=EXTRA_NA_VALUES)
 
+    # Catches whatever placeholder the list above did not anticipate. With the common ones
+    # already handled at parse time this is a cheap sampled check, not a second pass.
     coerced = _coerce_numeric_like(df)
     return df, coerced
 

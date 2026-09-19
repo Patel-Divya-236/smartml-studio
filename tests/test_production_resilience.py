@@ -255,6 +255,59 @@ def test_numeric_columns_with_stray_tokens_are_recovered(dirty_df):
     assert dirty_df["PM10"].isna().sum() > 0, "unparseable entries become missing values"
 
 
+def test_dirty_tokens_are_handled_at_parse_time_not_afterwards():
+    """Placeholders must become NaN during parsing, leaving nothing to repair.
+
+    Repairing afterwards means converting whole columns of Python strings, which on a 45MB
+    upload cost more than parsing the file did — and on a throttled CPU that is twenty
+    seconds the user waits. `na_values` makes pandas build float columns directly.
+    """
+    from backend.api.datasets import _coerce_numeric_like, _parse_upload
+
+    rng = np.random.default_rng(0)
+    rows = 5_000
+    frame = pd.DataFrame({
+        "pm10": [str(round(v, 2)) if i % 6 else "-" for i, v in enumerate(rng.normal(60, 20, rows))],
+        "city": rng.choice(["Delhi", "Mumbai"], rows),
+    })
+    raw = frame.to_csv(index=False).encode()
+
+    df, coerced = _parse_upload(raw, "air.csv")
+
+    assert pd.api.types.is_numeric_dtype(df["pm10"]), "'-' should be missing, not a category"
+    assert not pd.api.types.is_numeric_dtype(df["city"])
+    assert coerced == [], "the fallback should find nothing left to fix"
+    assert _coerce_numeric_like(df) == []
+
+
+def test_text_columns_are_rejected_without_converting_the_whole_column():
+    """The sampled pre-check must reject text before doing the expensive full pass."""
+    from backend.api import datasets
+
+    rows = 200_000
+    df = pd.DataFrame({"note": ["free text here"] * rows})
+
+    calls: list[int] = []
+    real = pd.to_numeric
+
+    def counting(values, *args, **kwargs):
+        calls.append(len(values))
+        return real(values, *args, **kwargs)
+
+    original = pd.to_numeric
+    pd.to_numeric = counting
+    try:
+        datasets._coerce_numeric_like(df)
+    finally:
+        pd.to_numeric = original
+
+    assert calls, "the column should have been sampled"
+    assert max(calls) <= datasets.COERCION_SAMPLE_ROWS, (
+        f"converted {max(calls):,} rows to reject a text column; "
+        f"the sample is {datasets.COERCION_SAMPLE_ROWS:,}"
+    )
+
+
 def test_genuine_text_columns_are_left_alone(dirty_df):
     """Only columns that are overwhelmingly numeric are converted."""
     _coerce_numeric_like(dirty_df)
