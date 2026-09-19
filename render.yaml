@@ -23,5 +23,7 @@ services:
         sync: false
       - key: LLM_BASE_URL
         value: https://api.groq.com/openai/v1
+      # Deliberately not a reasoning model: those return their answer outside `content`,
+      # which reached users as "LLM returned an empty response".
       - key: LLM_MODEL
-        value: openai/gpt-oss-120b
+        value: llama-3.3-70b-versatile

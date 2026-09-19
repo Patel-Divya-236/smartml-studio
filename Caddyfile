@@ -1,0 +1,25 @@
+# Caddy obtains and renews TLS certificates automatically; the only requirement is that
+# the hostname's DNS A record already points at this machine before the stack starts.
+#
+# Replace the placeholder with the real hostname. A second project's backend gets its own
+# block here pointing at its own service name in docker-compose.yml.
+
+{$API_DOMAIN} {
+	encode gzip
+
+	# Training progress is a WebSocket. Caddy proxies the upgrade without extra config,
+	# but the timeouts below have to be long enough to outlast a training run.
+	reverse_proxy smartml-api:8000 {
+		# Uploads and training both take far longer than the default, and cutting either
+		# off mid-flight is exactly the "Failed to fetch" the users were seeing.
+		transport http {
+			read_timeout 300s
+			write_timeout 300s
+		}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

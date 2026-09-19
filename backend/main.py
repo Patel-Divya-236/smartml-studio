@@ -5,10 +5,11 @@ backend is a transport layer over the existing profiler, advisors, pipelines, tr
 ensemble and explainer — the pipeline's behaviour is defined there, not here.
 """
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,11 +22,35 @@ from config.logging_config import setup_logging
 setup_logging()
 logger = logging.getLogger(__name__)
 
+# Sessions hold DataFrames and fitted models, and now leave files on disk too. Sweeping
+# only when a new session is created meant an idle server kept every one of them; an hour
+# is frequent enough to bound that without doing noticeable work.
+PURGE_INTERVAL_SECONDS = 60 * 60
+
+
+async def _purge_loop() -> None:
+    """Drop expired sessions and their checkpoints on a timer, for as long as we run."""
+    while True:
+        await asyncio.sleep(PURGE_INTERVAL_SECONDS)
+        try:
+            await asyncio.to_thread(STORE.purge_expired)
+        except Exception:
+            # A failed sweep must not kill the loop; the next tick tries again.
+            logger.exception("Session purge failed")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Load LLM credentials from the secrets file, if one is present."""
+    """Load LLM credentials, then run the session sweeper for the process's lifetime."""
     load_llm_env()
-    yield
+    STORE.purge_expired()  # clear checkpoints orphaned by however the last process ended
+    sweeper = asyncio.create_task(_purge_loop())
+    try:
+        yield
+    finally:
+        sweeper.cancel()
+        with suppress(asyncio.CancelledError):
+            await sweeper
 
 
 app = FastAPI(

@@ -13,6 +13,10 @@ from config.settings import SETTINGS
 
 logger = logging.getLogger(__name__)
 
+# Above this many distinct values, a text column is an identifier or free text rather than
+# a category worth encoding. See the split in `compute_profile`.
+HIGH_CARDINALITY_LIMIT = 50
+
 
 def detect_problem_type(df: pd.DataFrame, target_col: str) -> tuple[str, float, str]:
     """Auto-detect the problem type (Classification/Regression/Time Series) for the target.
@@ -112,15 +116,29 @@ class DatasetProfiler:
         dtypes_dict = {col: str(dtype) for col, dtype in df.dtypes.items()}
         memory_bytes = int(df.memory_usage(deep=True).sum())
 
+        cardinality = df.nunique().to_dict()
+
+        # A text column with thousands of distinct values is an identifier, a timestamp or
+        # free text — not a category. Encoding one produces a column per value and is what
+        # exhausted memory during preprocessing, so they are reported separately and the
+        # advisor defaults them to "drop" rather than "encode".
         numeric_cols = []
         categorical_cols = []
+        high_cardinality_cols = []
         for col, dtype in df.dtypes.items():
             if pd.api.types.is_numeric_dtype(dtype) and not pd.api.types.is_bool_dtype(dtype):
                 numeric_cols.append(col)
+            elif int(cardinality.get(col, 0)) > HIGH_CARDINALITY_LIMIT:
+                high_cardinality_cols.append(col)
             else:
                 categorical_cols.append(col)
 
-        cardinality = df.nunique().to_dict()
+        if high_cardinality_cols:
+            logger.info(
+                "High-cardinality text columns (>%d distinct), excluded from encoding: %s",
+                HIGH_CARDINALITY_LIMIT,
+                ", ".join(str(c) for c in high_cardinality_cols),
+            )
 
         # Skewness and Outliers for numeric columns
         skewness_dict = {}
@@ -186,6 +204,7 @@ class DatasetProfiler:
             "cardinality": cardinality,
             "numeric_columns": numeric_cols,
             "categorical_columns": categorical_cols,
+            "high_cardinality_columns": high_cardinality_cols,
             "skewness": skewness_dict,
             "outliers": outliers_dict,
             "correlation_matrix": correlation_matrix,

@@ -77,6 +77,7 @@ def preprocess(payload: PreprocessRequest, session: Session = Depends(get_sessio
     session.set("y_test", y_test)
     session.set("preprocessing_pipeline", fitted)
     session.set("feature_names", list(X_train.columns))
+    session.checkpoint()
 
     return {
         "train_shape": [int(X_train.shape[0]), int(X_train.shape[1])],
@@ -121,6 +122,7 @@ def features(payload: FeatureRequest, session: Session = Depends(get_session)) -
     session.set("feature_engineered_train", out_train)
     session.set("feature_engineered_test", out_test)
     session.set("feature_names", [str(n) for n in names])
+    session.checkpoint()
 
     return {
         "train_shape": [int(out_train.shape[0]), int(out_train.shape[1])],

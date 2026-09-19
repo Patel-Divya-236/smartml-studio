@@ -188,11 +188,23 @@ class LLMClient:
 
         try:
             choices = response.json()["choices"]
-            text = choices[0]["message"]["content"]
+            message = choices[0]["message"]
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             self._last_error = f"Unexpected response shape from the LLM provider: {exc}"
             logger.warning(self._last_error)
             return None
+
+        # Reasoning models put their answer in a separate field and leave `content` empty,
+        # which read as "the model said nothing" and surfaced as an error in the UI. The
+        # field name is not standardised across providers, so try each in turn.
+        text = None
+        for field in ("content", "reasoning_content", "reasoning"):
+            candidate = message.get(field) if isinstance(message, dict) else None
+            if candidate and str(candidate).strip():
+                text = candidate
+                if field != "content":
+                    logger.info("Used '%s' from the response; 'content' was empty.", field)
+                break
 
         if not text or not str(text).strip():
             self._last_error = "LLM returned an empty response."

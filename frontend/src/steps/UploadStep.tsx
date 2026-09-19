@@ -109,7 +109,7 @@ export function UploadStep() {
           <Button variant="primary" loading={busy} onClick={() => inputRef.current?.click()}>
             Choose file
           </Button>
-          <span className="xs muted">CSV, XLSX, XLS · up to 200MB</span>
+          <span className="xs muted">CSV, XLSX, XLS · up to 50MB</span>
           <input
             ref={inputRef}
             type="file"
@@ -127,6 +127,15 @@ export function UploadStep() {
           <Alert tone="info">
             Once uploaded, the dataset is profiled automatically and the task type is
             detected. You confirm the target column before anything else runs.
+          </Alert>
+        )}
+
+        {dataset && dataset.coerced_numeric_columns?.length > 0 && (
+          <Alert tone="info">
+            Read as numbers despite containing some non-numeric entries:{' '}
+            <span className="strong">{dataset.coerced_numeric_columns.join(', ')}</span>. The
+            unreadable values are treated as missing, so you can choose an imputer for them on
+            the preprocessing step.
           </Alert>
         )}
 

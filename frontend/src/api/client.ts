@@ -40,7 +40,9 @@ let sessionId: string | null = readSessionId();
 let sessionPromise: Promise<string> | null = null;
 
 async function createSession(): Promise<string> {
-  const response = await fetch(`${BASE}/session`, { method: 'POST' });
+  // Uses the long budget because this is usually the first call of the page load, and so
+  // the one that pays for a cold start.
+  const response = await attempt(`${BASE}/session`, { method: 'POST' }, LONG_TIMEOUT_MS);
   if (!response.ok) throw new ApiError('Could not start a session.', response.status);
   const data = await response.json();
   sessionId = data.session_id;
@@ -69,11 +71,61 @@ export function resetSession(): void {
   }
 }
 
+/** Default budget. Generous, because the server may be cold-starting. */
+const DEFAULT_TIMEOUT_MS = 30_000;
+/** For uploads, preprocessing and training, which do real work before replying. */
+export const LONG_TIMEOUT_MS = 120_000;
+
+/** Status used for failures that never reached the server, so they read like any other. */
+const NETWORK_ERROR = 0;
+const RETRY_STATUSES = [NETWORK_ERROR, 502, 503, 504];
+const RETRY_DELAYS_MS = [1_000, 3_000];
+
+const UNREACHABLE_MESSAGE = 'Could not reach the server. It may be starting up — retrying…';
+
+/**
+ * Set when the server rejects our session id, i.e. it restarted and lost this pipeline.
+ * Read once by the store so the UI can say what happened instead of silently blanking.
+ */
+let sessionLost = false;
+
+/** Whether the session was dropped server-side since this was last called. Clears the flag. */
+export function takeSessionLost(): boolean {
+  const lost = sessionLost;
+  sessionLost = false;
+  return lost;
+}
+
 interface RequestOptions {
   method?: string;
   body?: unknown;
   formData?: FormData;
   raw?: boolean;
+  timeoutMs?: number;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * One attempt. Network-level failures become ApiError(status 0) so callers never see the
+ * browser's bare "Failed to fetch", which tells the user nothing about what to do.
+ */
+async function attempt(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new ApiError(
+        `The server did not respond within ${Math.round(timeoutMs / 1000)}s.`,
+        NETWORK_ERROR,
+      );
+    }
+    throw new ApiError(UNREACHABLE_MESSAGE, NETWORK_ERROR);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -88,37 +140,68 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     body = JSON.stringify(options.body);
   }
 
-  const response = await fetch(`${BASE}${path}`, {
-    method: options.method ?? (body ? 'POST' : 'GET'),
-    headers,
-    body,
-  });
+  const method = options.method ?? (body ? 'POST' : 'GET');
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  // Only GETs are safe to repeat blind. A POST may have been applied server-side before the
+  // connection dropped, so retrying one risks running the same work twice.
+  const maxAttempts = method === 'GET' ? RETRY_DELAYS_MS.length + 1 : 1;
 
-  if (response.status === 400) {
-    // The session expired server-side. Start a new one so the next action can recover,
-    // rather than leaving the tab permanently broken.
-    resetSession();
-  }
+  let lastError: ApiError | null = null;
 
-  if (!response.ok) {
-    let detail = `Request failed (${response.status})`;
+  for (let index = 0; index < maxAttempts; index += 1) {
+    if (index > 0) await sleep(RETRY_DELAYS_MS[index - 1]);
+
+    let response: Response;
     try {
-      const payload = await response.json();
-      if (typeof payload?.detail === 'string') detail = payload.detail;
-    } catch {
-      /* non-JSON error body — keep the generic message */
+      response = await attempt(`${BASE}${path}`, { method, headers, body }, timeoutMs);
+    } catch (error) {
+      lastError = error as ApiError;
+      continue; // transport failure — always worth another go within the attempt budget
     }
-    throw new ApiError(detail, response.status);
+
+    if (response.status === 400) {
+      // The session expired or the server restarted. Start a new one so the next action can
+      // recover, and record it so the UI can explain rather than silently resetting.
+      sessionLost = true;
+      resetSession();
+    }
+
+    if (!response.ok) {
+      let detail = `Request failed (${response.status})`;
+      try {
+        const payload = await response.json();
+        if (typeof payload?.detail === 'string') detail = payload.detail;
+      } catch {
+        /* non-JSON error body — keep the generic message */
+      }
+      const failure = new ApiError(detail, response.status);
+      if (RETRY_STATUSES.includes(response.status)) {
+        lastError = failure;
+        continue; // the server is up but not ready; a 4xx is never retried
+      }
+      throw failure;
+    }
+
+    if (options.raw) return (await response.text()) as unknown as T;
+    return (await response.json()) as T;
   }
 
-  if (options.raw) return (await response.text()) as unknown as T;
-  return (await response.json()) as T;
+  throw lastError ?? new ApiError(UNREACHABLE_MESSAGE, NETWORK_ERROR);
+}
+
+/** Wake a sleeping backend before the first real call, so the UI can say what it is waiting for. */
+export async function warmUp(): Promise<void> {
+  await attempt(`${BASE}/health`, { method: 'GET' }, LONG_TIMEOUT_MS);
 }
 
 /** Open a download in the browser, forwarding the session header via a blob fetch. */
 export async function downloadFile(path: string, filename: string): Promise<void> {
   const id = await ensureSession();
-  const response = await fetch(`${BASE}${path}`, { headers: { 'X-Session-Id': id } });
+  const response = await attempt(
+    `${BASE}${path}`,
+    { headers: { 'X-Session-Id': id } },
+    LONG_TIMEOUT_MS,
+  );
   if (!response.ok) throw new ApiError('Download failed.', response.status);
 
   const blob = await response.blob();
@@ -145,7 +228,7 @@ export const api = {
   uploadDataset: (file: File) => {
     const form = new FormData();
     form.append('file', file);
-    return request<UploadResult>('/datasets', { formData: form });
+    return request<UploadResult>('/datasets', { formData: form, timeoutMs: LONG_TIMEOUT_MS });
   },
   columns: () => request<{ columns: ColumnSuggestion[] }>('/datasets/columns'),
   setTarget: (target_column: string, problem_type?: string) =>
@@ -187,10 +270,12 @@ export const api = {
       },
     }),
 
+  // The pipeline stages below fit transformers over the whole training set, so they get the
+  // long budget: the default would abort work that was progressing normally.
   preprocess: (payload: PreprocessPayload) =>
-    request<PreprocessResult>('/pipeline/preprocess', { body: payload }),
+    request<PreprocessResult>('/pipeline/preprocess', { body: payload, timeoutMs: LONG_TIMEOUT_MS }),
   features: (payload: FeaturePayload) =>
-    request<FeatureResult>('/pipeline/features', { body: payload }),
+    request<FeatureResult>('/pipeline/features', { body: payload, timeoutMs: LONG_TIMEOUT_MS }),
 
   availableModels: () => request<{ models: string[]; problem_type: string }>('/training/available'),
   startTraining: (models: string[]) => request<TrainingJob>('/training/jobs', { body: { models } }),
@@ -204,16 +289,23 @@ export const api = {
     ),
   diagnostics: (model: string) =>
     request<DiagnosticsResult>(`/evaluation/diagnostics/${encodeURIComponent(model)}`),
+  // SHAP fits its own surrogate model before it can answer.
   shapGlobal: (model: string) =>
-    request<ShapGlobalResult>(`/evaluation/shap/${encodeURIComponent(model)}/global`),
+    request<ShapGlobalResult>(`/evaluation/shap/${encodeURIComponent(model)}/global`, {
+      timeoutMs: LONG_TIMEOUT_MS,
+    }),
   shapLocal: (model: string, index: number) =>
-    request<ShapLocalResult>(`/evaluation/shap/${encodeURIComponent(model)}/local/${index}`),
+    request<ShapLocalResult>(`/evaluation/shap/${encodeURIComponent(model)}/local/${index}`, {
+      timeoutMs: LONG_TIMEOUT_MS,
+    }),
   narrateGlobal: (model: string) =>
     request<NarrationResult>('/evaluation/shap/narrate-global', { body: { model } }),
   narrateLocal: (model: string, sample_index: number) =>
     request<NarrationResult>('/evaluation/shap/narrate-local', { body: { model, sample_index } }),
 
-  predict: (payload: PredictPayload) => request<PredictResult>('/predictions', { body: payload }),
+  // Fits the hybrid ensemble before predicting.
+  predict: (payload: PredictPayload) =>
+    request<PredictResult>('/predictions', { body: payload, timeoutMs: LONG_TIMEOUT_MS }),
   exportSummary: () => request<ExportSummary>('/artifacts/summary'),
   reportPreview: (narrate: boolean) =>
     request<ReportPreview>(`/artifacts/report/preview?narrate=${narrate}`),
@@ -252,6 +344,8 @@ export interface UploadResult {
   columns: number;
   column_names: string[];
   dtypes: Record<string, string>;
+  /** Text columns the server read as numeric because nearly every value parsed as a number. */
+  coerced_numeric_columns: string[];
   memory_mb: number;
   preview: Record<string, unknown>[];
   completed_steps: CompletedSteps;

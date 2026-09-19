@@ -1,5 +1,11 @@
 import { create } from 'zustand';
-import { api, type CompletedSteps, type PipelineState, type StepId } from '../api/client';
+import {
+  api,
+  takeSessionLost,
+  type CompletedSteps,
+  type PipelineState,
+  type StepId,
+} from '../api/client';
 
 /**
  * Pipeline navigation and completion state.
@@ -61,6 +67,8 @@ interface PipelineStore {
   completed: CompletedSteps;
   meta: Partial<PipelineState>;
   autoAdvance: boolean;
+  /** Shell-level message about something that happened to the session itself, not a step. */
+  notice: string | null;
 
   goTo: (step: StepId) => void;
   setCompleted: (completed: CompletedSteps) => void;
@@ -84,6 +92,7 @@ interface PipelineStore {
   completeAndGo: (step: StepId, completed?: CompletedSteps) => void;
   setAutoAdvance: (value: boolean) => void;
   refreshState: () => Promise<void>;
+  dismissNotice: () => void;
   reset: () => void;
 }
 
@@ -102,6 +111,7 @@ export const usePipeline = create<PipelineStore>((set, get) => ({
   completed: EMPTY_COMPLETION,
   meta: {},
   autoAdvance: true,
+  notice: null,
 
   goTo: (step) => set({ currentStep: step }),
 
@@ -134,15 +144,28 @@ export const usePipeline = create<PipelineStore>((set, get) => ({
   refreshState: async () => {
     try {
       const state = await api.state();
-      set({ completed: state.completed_steps, meta: state });
+      // Clear the flag on success too, so a 400 we already recovered from cannot surface
+      // as a stale warning on some later refresh.
+      takeSessionLost();
+      set({ completed: state.completed_steps, meta: state, notice: null });
     } catch {
-      // A fresh or expired session simply has nothing complete yet; the upload step
-      // is always reachable, so there is nothing to report to the user here.
-      set({ completed: EMPTY_COMPLETION, meta: {} });
+      // A fresh session simply has nothing complete yet, and the upload step is always
+      // reachable — nothing to report. But if the server rejected an id we were holding,
+      // the pipeline was wiped underneath the user and saying so beats blanking silently.
+      set({
+        completed: EMPTY_COMPLETION,
+        meta: {},
+        notice: takeSessionLost()
+          ? 'The server restarted and this pipeline was lost. Please upload your dataset again.'
+          : null,
+      });
     }
   },
 
-  reset: () => set({ currentStep: 'upload', completed: EMPTY_COMPLETION, meta: {} }),
+  dismissNotice: () => set({ notice: null }),
+
+  reset: () =>
+    set({ currentStep: 'upload', completed: EMPTY_COMPLETION, meta: {}, notice: null }),
 }));
 
 /** The step that follows `step`, with its display label, or null at the end. */

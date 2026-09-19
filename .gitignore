@@ -43,3 +43,7 @@ htmlcov/
 
 # CatBoost training artifacts
 catboost_info/
+
+# Local session checkpoints (backend/core/persistence.py) and host deployment secrets.
+.sessions/
+.env

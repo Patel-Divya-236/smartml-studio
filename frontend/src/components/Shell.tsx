@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { STEPS, STEP_GROUPS, isUnlocked, usePipeline } from '../store/pipeline';
 import { useTheme } from '../theme/ThemeProvider';
-import { resetSession } from '../api/client';
+import { resetSession, warmUp } from '../api/client';
 import { Switch, Tooltip } from './ui';
 import './shell.css';
 
@@ -14,13 +14,37 @@ import './shell.css';
  * without reading a warning after clicking.
  */
 export function Shell({ children }: { children: ReactNode }) {
-  const { currentStep, completed, goTo, meta, autoAdvance, setAutoAdvance, refreshState } =
-    usePipeline();
+  const {
+    currentStep, completed, goTo, meta, autoAdvance, setAutoAdvance, refreshState,
+    notice, dismissNotice,
+  } = usePipeline();
   const { theme, toggle } = useTheme();
   const [navOpen, setNavOpen] = useState(false);
+  const [waking, setWaking] = useState(false);
 
   useEffect(() => {
-    void refreshState();
+    // Ping health before anything else. A backend that has been idle can take the better
+    // part of a minute to answer its first request, and without this the user sees only a
+    // stalled spinner with no indication that waiting is the right thing to do.
+    let cancelled = false;
+    const timer = setTimeout(() => !cancelled && setWaking(true), 2_000);
+
+    void warmUp()
+      .catch(() => {
+        /* the real error surfaces on the request that follows; this is only a warm-up */
+      })
+      .finally(() => {
+        clearTimeout(timer);
+        if (!cancelled) {
+          setWaking(false);
+          void refreshState();
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [refreshState]);
 
   // Close the mobile drawer whenever the module changes.
@@ -139,6 +163,21 @@ export function Shell({ children }: { children: ReactNode }) {
             </button>
           </Tooltip>
         </header>
+
+        {waking && (
+          <div className="shell-banner is-waiting" role="status">
+            Waking the server — the first request after an idle period can take up to a minute.
+          </div>
+        )}
+
+        {notice && (
+          <div className="shell-banner is-warning" role="alert">
+            <span>{notice}</span>
+            <button className="link-btn" onClick={dismissNotice}>
+              Dismiss
+            </button>
+          </div>
+        )}
 
         <main className="content">{children}</main>
       </div>

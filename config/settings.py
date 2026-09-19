@@ -90,9 +90,12 @@ class AppSettings:
     LLM_BASE_URL: str = "https://api.groq.com/openai/v1"
     """OpenAI-compatible chat-completions base URL. Overridable via LLM_BASE_URL."""
 
-    LLM_MODEL: str = "openai/gpt-oss-120b"
+    LLM_MODEL: str = "llama-3.3-70b-versatile"
     """Model id on the chosen provider. Model ids change — if requests 404, list the
-    provider's current models with LLMClient.list_models() and set LLM_MODEL."""
+    provider's current models with LLMClient.list_models() and set LLM_MODEL.
+
+    Deliberately not a reasoning model. Those return their answer outside `content`, and
+    these are short narration tasks that gain nothing from a reasoning budget."""
 
     LLM_MAX_TOKENS: int = 900
     """Output cap per narration. These are short prose tasks, not long generations."""

@@ -105,6 +105,7 @@ def _run_training(job: Job, session: Session, models: list[str]) -> None:
 
         comparison = compute_metrics(results, y_test, session.get("problem_type"))
         session.set("model_comparison", comparison)
+        session.checkpoint()
 
         job.status = "completed"
     except Exception as exc:

@@ -168,6 +168,32 @@
   flex-shrink: 0;
 }
 
+/* Session-level messages: the server waking up, or a pipeline lost to a restart. They sit
+   above the module rather than inside it, because they are about the connection, not the
+   step the user happens to be on. */
+.shell-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.shell-banner.is-waiting {
+  background: var(--accent-soft);
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+
+.shell-banner.is-warning {
+  background: var(--warning-soft);
+  border-bottom-color: var(--warning);
+  color: var(--text);
+}
+
 .crumbs {
   display: flex;
   align-items: center;

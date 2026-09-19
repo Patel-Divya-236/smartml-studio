@@ -4,6 +4,18 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from backend.core import persistence
+
+
+@pytest.fixture(autouse=True)
+def isolated_session_checkpoints(tmp_path, monkeypatch):
+    """Keep session checkpoints out of the working tree.
+
+    Any test that uploads through the API writes a checkpoint, which would otherwise
+    accumulate real pickles of test data in `.sessions/` next to the source.
+    """
+    monkeypatch.setattr(persistence, "SESSION_DIR", tmp_path / "sessions")
+
 
 @pytest.fixture
 def sample_classification_df() -> pd.DataFrame:

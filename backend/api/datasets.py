@@ -5,6 +5,7 @@ import logging
 
 import numpy as np
 import pandas as pd
+from anyio import to_thread
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
@@ -16,8 +17,18 @@ from src.profiling.dataset_profiler import DatasetProfiler, detect_problem_type
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/datasets", tags=["datasets"])
 
-MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # matches the 200MB limit shown in the UI
+# 50MB, not the 200MB this once allowed. The file is held in memory twice while parsing —
+# once as bytes, once as the DataFrame — and the frames the pipeline derives from it are
+# several times larger again. A 200MB upload exhausted the deploy target's RAM and got the
+# process killed mid-request, which the browser reports as a bare "Failed to fetch".
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+MAX_UPLOAD_LABEL = "50MB"  # keep in sync with the copy in UploadStep.tsx
 PREVIEW_ROWS = 50
+
+# A text column whose values are overwhelmingly numeric is a numeric column with dirty
+# entries ("NA", "-", a stray footnote), not a category. Left as object dtype it reaches
+# the encoders as tens of thousands of distinct "categories" and blows up memory.
+NUMERIC_COERCION_RATIO = 0.9
 
 
 class TargetSelection(BaseModel):
@@ -25,6 +36,55 @@ class TargetSelection(BaseModel):
 
     target_column: str
     problem_type: str | None = None
+
+
+def _coerce_numeric_like(df: pd.DataFrame) -> list[str]:
+    """Convert object columns that are really numbers in disguise. Returns the names fixed.
+
+    Only columns where at least `NUMERIC_COERCION_RATIO` of the non-null values parse as
+    numbers are converted, so genuine text columns are left alone. The unparseable entries
+    become NaN and are handled by whichever imputer the user picks later.
+    """
+    fixed: list[str] = []
+    for col in df.columns:
+        original = df[col]
+        # Text arrives as `object` on pandas 2 and as `str` on pandas 3, so the check is
+        # "not already a type we understand" rather than a test for one dtype.
+        if (
+            pd.api.types.is_numeric_dtype(original)
+            or pd.api.types.is_bool_dtype(original)
+            or pd.api.types.is_datetime64_any_dtype(original)
+            or isinstance(original.dtype, pd.CategoricalDtype)
+        ):
+            continue
+
+        present = original.notna().sum()
+        if present == 0:
+            continue
+
+        converted = pd.to_numeric(original, errors="coerce")
+        if converted.notna().sum() >= present * NUMERIC_COERCION_RATIO:
+            df[col] = converted
+            fixed.append(str(col))
+
+    return fixed
+
+
+def _parse_upload(raw: bytes, name: str) -> tuple[pd.DataFrame, list[str]]:
+    """Parse raw upload bytes into a DataFrame. Runs in a worker thread, never on the loop.
+
+    pandas parsing is CPU-bound and uninterruptible. Called inline from the async handler it
+    froze the event loop for the whole parse, stalling every other request — including the
+    health probe, whose timeout made the platform restart the process and discard every
+    session. Hence `to_thread.run_sync` at the call site.
+    """
+    if name.lower().endswith((".xlsx", ".xls")):
+        df = pd.read_excel(io.BytesIO(raw))
+    else:
+        df = pd.read_csv(io.BytesIO(raw))
+
+    coerced = _coerce_numeric_like(df)
+    return df, coerced
 
 
 @router.post("")
@@ -39,17 +99,20 @@ async def upload_dataset(
     """
     raw = await file.read()
     if len(raw) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="File exceeds the 200MB limit.")
+        raise HTTPException(
+            status_code=413, detail=f"File exceeds the {MAX_UPLOAD_LABEL} limit."
+        )
 
     name = (file.filename or "dataset.csv").strip()
     try:
-        if name.lower().endswith((".xlsx", ".xls")):
-            df = pd.read_excel(io.BytesIO(raw))
-        else:
-            df = pd.read_csv(io.BytesIO(raw))
+        df, coerced = await to_thread.run_sync(_parse_upload, raw, name)
     except Exception as exc:
         logger.exception("Failed to parse upload %s", name)
         raise HTTPException(status_code=422, detail=f"Could not read the file: {exc}") from exc
+    finally:
+        # Release the raw bytes before the derived frames are built; holding both doubles
+        # the peak for no benefit.
+        del raw
 
     if df.empty:
         raise HTTPException(status_code=422, detail="The uploaded file has no rows.")
@@ -57,7 +120,10 @@ async def upload_dataset(
     session.reset_downstream("dataset")
     session.set("dataset", df)
     session.set("dataset_name", name)
+    session.checkpoint()
 
+    if coerced:
+        logger.info("Coerced text columns to numeric on upload: %s", ", ".join(coerced))
     logger.info("Uploaded %s: %d rows, %d columns.", name, len(df), df.shape[1])
     return {
         "name": name,
@@ -65,6 +131,7 @@ async def upload_dataset(
         "columns": int(df.shape[1]),
         "column_names": [str(c) for c in df.columns],
         "dtypes": {str(c): str(t) for c, t in df.dtypes.items()},
+        "coerced_numeric_columns": coerced,
         "memory_mb": round(float(df.memory_usage(deep=True).sum()) / 1_048_576, 2),
         "preview": dataframe_to_records(df, limit=PREVIEW_ROWS),
         "completed_steps": session.completed_steps(),
@@ -111,6 +178,7 @@ def set_target(
     session.reset_downstream("dataset_name")
     session.set("target_column", payload.target_column)
     session.set("problem_type", problem_type)
+    session.checkpoint()
 
     return {
         "target_column": payload.target_column,

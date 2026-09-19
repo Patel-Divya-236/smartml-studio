@@ -35,12 +35,19 @@ class PreprocessingAdvisor(BaseAdvisor):
         outliers_dict = profile.get("outliers", {})
         numeric_cols = profile.get("numeric_columns", [])
         categorical_cols = profile.get("categorical_columns", [])
-        
+        high_cardinality_cols = profile.get("high_cardinality_columns", [])
+
+        # Columns already recommended for removal. Sections 2 and 3 skip them, so the UI
+        # cannot show "drop this column" and "scale this column" side by side — which it
+        # previously did for any column that was both mostly-missing and numeric.
+        dropped_cols: set = set()
+
         # ── 1. Imputation Recommendations ────────────────────────────────
         for col, pct in missing_pcts.items():
             if pct > 0:
                 is_num = col in numeric_cols
                 if pct > SETTINGS.MISSING_HIGH_PCT:
+                    dropped_cols.add(col)
                     recs.append(
                         Recommendation(
                             label=f"Drop Column: {col}",
@@ -93,8 +100,40 @@ class PreprocessingAdvisor(BaseAdvisor):
                         )
                     )
 
+        # ── 1b. High-cardinality text ────────────────────────────────────
+        # Identifiers, timestamps and free text. Encoding them is what produced tens of
+        # thousands of levels and exhausted memory during the split, so they are dropped by
+        # default; the user can still override the choice per column.
+        #
+        # Categorised as imputation, not encoding, because "Drop Column" is an option on the
+        # imputer control and the pipeline reads dropped columns from `impute_config` alone
+        # (PreprocessingPipeline._drop_configured_columns). Filed under encoding it would be
+        # shown, silently ignored, and the column encoded anyway.
+        for col in high_cardinality_cols:
+            if col in dropped_cols:
+                continue
+            dropped_cols.add(col)
+            card = cardinalities.get(col, 0)
+            recs.append(
+                Recommendation(
+                    label=f"Drop Column: {col}",
+                    confidence_score=0.90,
+                    reason=f"Text column '{col}' has {card} distinct values — an identifier, "
+                           "date or free-text field rather than a category.",
+                    why_explanation="Encoding a column with this many distinct values gives almost "
+                                    "every row its own level. The result carries no generalisable "
+                                    "signal, inflates memory enormously, and makes models memorise "
+                                    "rows instead of learning patterns. If this column holds dates, "
+                                    "derive year/month/day features from it and use those instead.",
+                    category="imputation",
+                    metadata={"column": col, "action": "drop"}
+                )
+            )
+
         # ── 2. Encoding Recommendations ──────────────────────────────────
         for col in categorical_cols:
+            if col in dropped_cols:
+                continue
             card = cardinalities.get(col, 0)
             if card <= 10:
                 recs.append(
@@ -125,6 +164,8 @@ class PreprocessingAdvisor(BaseAdvisor):
 
         # ── 3. Scaling & Transformation Recommendations ──────────────────
         for col in numeric_cols:
+            if col in dropped_cols:
+                continue
             skew = skewness_dict.get(col, 0.0)
             outliers = outliers_dict.get(col, {}).get("count", 0)
             

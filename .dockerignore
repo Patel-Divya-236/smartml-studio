@@ -1,0 +1,12 @@
+.git
+.venv
+frontend
+tests
+logs
+catboost_info
+__pycache__
+**/__pycache__
+*.pyc
+.sessions
+secrets.toml
+render.yaml
