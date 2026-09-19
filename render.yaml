@@ -23,7 +23,7 @@ services:
         sync: false
       - key: LLM_BASE_URL
         value: https://api.groq.com/openai/v1
-      # Deliberately not a reasoning model: those return their answer outside `content`,
-      # which reached users as "LLM returned an empty response".
+      # Verify with `python scripts_list_models.py` before changing — provider model ids
+      # are retired without notice, and a stale id 404s every narration call.
       - key: LLM_MODEL
-        value: llama-3.3-70b-versatile
+        value: openai/gpt-oss-120b

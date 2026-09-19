@@ -90,15 +90,22 @@ class AppSettings:
     LLM_BASE_URL: str = "https://api.groq.com/openai/v1"
     """OpenAI-compatible chat-completions base URL. Overridable via LLM_BASE_URL."""
 
-    LLM_MODEL: str = "llama-3.3-70b-versatile"
+    LLM_MODEL: str = "openai/gpt-oss-120b"
     """Model id on the chosen provider. Model ids change — if requests 404, list the
-    provider's current models with LLMClient.list_models() and set LLM_MODEL.
+    provider's current models with `python scripts_list_models.py` and set LLM_MODEL.
 
-    Deliberately not a reasoning model. Those return their answer outside `content`, and
-    these are short narration tasks that gain nothing from a reasoning budget."""
+    This is a reasoning model: it returns a `reasoning` field alongside `content`, and can
+    leave `content` empty. LLMClient._parse falls back to that field rather than reporting
+    the reply as empty. Verify any replacement against the provider's live catalogue —
+    ids are retired without notice."""
 
-    LLM_MAX_TOKENS: int = 900
-    """Output cap per narration. These are short prose tasks, not long generations."""
+    LLM_MAX_TOKENS: int = 2000
+    """Output cap per narration.
+
+    The prose itself is short, but a reasoning model spends part of this budget thinking
+    before it writes. A hard prompt was measured using 882 of the previous 900-token cap,
+    leaving the answer almost no room — and an answer squeezed out entirely is what reaches
+    the user as an empty response."""
 
     LLM_TEMPERATURE: float = 0.3
     """Low temperature: narration should track the numbers, not embellish them."""

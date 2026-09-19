@@ -53,7 +53,7 @@ Fill in `.env`:
 | `API_DOMAIN` | Hostname Caddy serves the API on. Must already resolve to this machine. |
 | `SMARTML_ALLOWED_ORIGINS` | The frontend's origin, e.g. `https://smartml-studio.vercel.app`. This project's Vercel preview URLs are already matched by pattern in `backend/main.py`. |
 | `LLM_API_KEY` | Optional. Without it, explanations fall back to the advisors' own text. |
-| `LLM_MODEL` | Leave as the default. Do not use a reasoning model — those return an empty `content` field, which the UI reports as "LLM returned an empty response". |
+| `LLM_MODEL` | Leave as the default. If narration starts failing, the id has probably been retired — run `python scripts_list_models.py` to see what the provider currently serves. |
 
 ### 4. Start
 

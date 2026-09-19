@@ -8,8 +8,10 @@ Each one was visible to users rather than theoretical:
    resolved to nothing and the UI demanded the dataset be uploaded again.
 3. Numeric columns containing stray tokens were read as text and then treated as
    categories with tens of thousands of levels, exhausting memory during preprocessing.
-4. A reasoning model returned its answer outside `content`, which reached the user as
-   "LLM returned an empty response."
+4. Users saw "LLM returned an empty response". The configured model is a reasoning model
+   that can put its answer outside `content` and spends part of the token budget thinking
+   before it writes, so an empty `content` is a reachable state rather than a hard error.
+   `_parse` now falls back to the other fields instead of reporting nothing at all.
 """
 
 import asyncio
