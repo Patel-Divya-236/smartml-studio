@@ -9,6 +9,14 @@ services:
     name: smartml-api
     runtime: python
     plan: free
+    # A service's region is fixed when it is created and cannot be changed afterwards, so
+    # this line only takes effect for a NEW service. Uncomment it before creating one, and
+    # delete the old Oregon service once the replacement is verified.
+    #
+    # Why it matters: uploads are network-bound. Measured from India to the Oregon service,
+    # throughput was ~0.33 MB/s, so a 4MB CSV spent ~12s on the wire against under a second
+    # of parsing. Singapore is far closer to the users here.
+    # region: singapore
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health

@@ -102,6 +102,84 @@ def test_upload_parse_runs_off_the_event_loop(monkeypatch):
     )
 
 
+# -- 1b. Gzipped uploads ------------------------------------------------------
+
+def _client_with_session():
+    """A TestClient plus the headers for a fresh session."""
+    from fastapi.testclient import TestClient
+
+    from backend.main import app
+
+    client = TestClient(app)
+    return client, {"X-Session-Id": client.post("/api/session").json()["session_id"]}
+
+
+def _csv_bytes(rows: int = 200) -> bytes:
+    rng = np.random.default_rng(0)
+    frame = pd.DataFrame({
+        "age": rng.integers(18, 80, rows),
+        "score": rng.normal(50, 10, rows).round(3),
+        "churn": rng.choice(["yes", "no"], rows),
+    })
+    return frame.to_csv(index=False).encode()
+
+
+def test_gzipped_upload_is_read_like_a_plain_one():
+    """Compression is a transport detail; the parsed result must be identical."""
+    import gzip
+
+    raw = _csv_bytes()
+    client, headers = _client_with_session()
+
+    plain = client.post("/api/datasets", headers=headers,
+                        files={"file": ("d.csv", raw, "text/csv")})
+    packed = client.post("/api/datasets", headers={**headers, "X-Upload-Encoding": "gzip"},
+                         files={"file": ("d.csv", gzip.compress(raw), "text/csv")})
+
+    assert plain.status_code == 200
+    assert packed.status_code == 200
+    assert packed.json()["rows"] == plain.json()["rows"]
+    assert packed.json()["column_names"] == plain.json()["column_names"]
+
+
+def test_upload_without_the_header_is_still_accepted():
+    """An older or simpler client that cannot compress must keep working."""
+    client, headers = _client_with_session()
+    response = client.post("/api/datasets", headers=headers,
+                           files={"file": ("d.csv", _csv_bytes(), "text/csv")})
+    assert response.status_code == 200
+
+
+def test_a_decompression_bomb_is_refused():
+    """The size limit applies to the expanded bytes, not the compressed ones.
+
+    A few kilobytes of zeros expand into hundreds of megabytes. Checking only the
+    compressed length would let that through and exhaust the process.
+    """
+    import gzip
+
+    from backend.api import datasets
+
+    bomb = gzip.compress(b"0" * (datasets.MAX_UPLOAD_BYTES + 1024))
+    assert len(bomb) < 1024 * 1024, "the point is that it is small on the wire"
+
+    client, headers = _client_with_session()
+    response = client.post("/api/datasets", headers={**headers, "X-Upload-Encoding": "gzip"},
+                           files={"file": ("d.csv", bomb, "text/csv")})
+
+    assert response.status_code == 413
+
+
+def test_a_corrupt_gzip_body_is_a_clean_error():
+    """Garbage marked as gzip returns 422, not a 500."""
+    client, headers = _client_with_session()
+    response = client.post("/api/datasets", headers={**headers, "X-Upload-Encoding": "gzip"},
+                           files={"file": ("d.csv", b"not gzip at all", "text/csv")})
+
+    assert response.status_code == 422
+    assert "Could not read the file" in response.json()["detail"]
+
+
 # -- 2. Sessions must survive the process that created them -------------------
 
 def test_session_survives_a_restart(store, dirty_df):

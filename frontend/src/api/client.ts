@@ -102,6 +102,7 @@ interface RequestOptions {
   formData?: FormData;
   raw?: boolean;
   timeoutMs?: number;
+  headers?: Record<string, string>;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -130,7 +131,7 @@ async function attempt(url: string, init: RequestInit, timeoutMs: number): Promi
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const id = await ensureSession();
-  const headers: Record<string, string> = { 'X-Session-Id': id };
+  const headers: Record<string, string> = { 'X-Session-Id': id, ...options.headers };
   let body: BodyInit | undefined;
 
   if (options.formData) {
@@ -189,6 +190,38 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   throw lastError ?? new ApiError(UNREACHABLE_MESSAGE, NETWORK_ERROR);
 }
 
+/**
+ * Formats that are already compressed containers. Gzipping one costs CPU and saves nothing.
+ */
+const INCOMPRESSIBLE = /\.(xlsx|xls|gz|zip)$/i;
+
+/** Below this, the round trip dominates and compression is not worth the wait. */
+const MIN_COMPRESS_BYTES = 256 * 1024;
+
+/**
+ * Gzip a file before upload, or return null to send it as-is.
+ *
+ * Uploads are network-bound: measured throughput to the deployed API was ~0.33 MB/s, so a
+ * 4MB CSV spent ~12s on the wire against well under a second of parsing. CSV compresses
+ * about 3x, which is the difference between a wait and a pause.
+ *
+ * Returns null whenever compression is unavailable, unhelpful or fails — the caller then
+ * sends the original bytes and omits the header, which every server version accepts.
+ */
+async function compressForUpload(file: File): Promise<Blob | null> {
+  if (file.size < MIN_COMPRESS_BYTES || INCOMPRESSIBLE.test(file.name)) return null;
+  if (typeof CompressionStream === 'undefined') return null;
+
+  try {
+    const stream = file.stream().pipeThrough(new CompressionStream('gzip'));
+    const packed = await new Response(stream).blob();
+    // A file that does not actually shrink is not worth the extra decompression step.
+    return packed.size < file.size ? packed : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Wake a sleeping backend before the first real call, so the UI can say what it is waiting for. */
 export async function warmUp(): Promise<void> {
   await attempt(`${BASE}/health`, { method: 'GET' }, LONG_TIMEOUT_MS);
@@ -225,10 +258,23 @@ export function trainingSocketUrl(jobId: string): string {
 export const api = {
   state: () => request<PipelineState>('/pipeline/state'),
 
-  uploadDataset: (file: File) => {
+  uploadDataset: async (file: File) => {
     const form = new FormData();
-    form.append('file', file);
-    return request<UploadResult>('/datasets', { formData: form, timeoutMs: LONG_TIMEOUT_MS });
+    const packed = await compressForUpload(file);
+
+    if (packed) {
+      // The server reads the filename to choose the CSV or Excel parser, so it is kept
+      // as-is rather than gaining a .gz suffix.
+      form.append('file', packed, file.name);
+    } else {
+      form.append('file', file);
+    }
+
+    return request<UploadResult>('/datasets', {
+      formData: form,
+      timeoutMs: LONG_TIMEOUT_MS,
+      headers: packed ? { 'X-Upload-Encoding': 'gzip' } : undefined,
+    });
   },
   columns: () => request<{ columns: ColumnSuggestion[] }>('/datasets/columns'),
   setTarget: (target_column: string, problem_type?: string) =>

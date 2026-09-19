@@ -2,11 +2,12 @@
 
 import io
 import logging
+import zlib
 
 import numpy as np
 import pandas as pd
 from anyio import to_thread
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from backend.api.deps import get_session, require
@@ -29,6 +30,13 @@ PREVIEW_ROWS = 50
 # entries ("NA", "-", a stray footnote), not a category. Left as object dtype it reaches
 # the encoders as tens of thousands of distinct "categories" and blows up memory.
 NUMERIC_COERCION_RATIO = 0.9
+
+# Uploads are network-bound, not CPU-bound: measured throughput from a browser to the
+# deployed API was ~0.33 MB/s, so a 4MB CSV spent ~12s on the wire and under a second
+# being parsed. CSV compresses ~3x, so the client gzips before sending and this undoes it.
+# The header is set by the client only when it actually compressed the body.
+GZIP_HEADER = "x-upload-encoding"
+GZIP_WINDOW = 16 + zlib.MAX_WBITS  # 16 selects gzip framing over raw deflate
 
 
 class TargetSelection(BaseModel):
@@ -70,6 +78,26 @@ def _coerce_numeric_like(df: pd.DataFrame) -> list[str]:
     return fixed
 
 
+def _gunzip(raw: bytes, limit: int) -> bytes:
+    """Decompress a gzipped upload, refusing anything that expands past `limit`.
+
+    The size check has to happen against the *decompressed* bytes. Checking the compressed
+    length would let a few kilobytes expand into gigabytes and exhaust the process, so the
+    stream is decompressed with a hard cap and rejected if anything is left over.
+    """
+    stream = zlib.decompressobj(GZIP_WINDOW)
+    try:
+        out = stream.decompress(raw, limit + 1)
+    except zlib.error as exc:
+        raise HTTPException(status_code=422, detail=f"Could not read the file: {exc}") from exc
+
+    if len(out) > limit or stream.unconsumed_tail or not stream.eof:
+        raise HTTPException(
+            status_code=413, detail=f"File exceeds the {MAX_UPLOAD_LABEL} limit."
+        )
+    return out
+
+
 def _parse_upload(raw: bytes, name: str) -> tuple[pd.DataFrame, list[str]]:
     """Parse raw upload bytes into a DataFrame. Runs in a worker thread, never on the loop.
 
@@ -91,21 +119,38 @@ def _parse_upload(raw: bytes, name: str) -> tuple[pd.DataFrame, list[str]]:
 async def upload_dataset(
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
+    x_upload_encoding: str | None = Header(default=None),
 ) -> dict:
     """Read a CSV or Excel upload into the session and return a preview.
 
     Uploading invalidates every downstream stage — the whole point of the cascade — so a
     second upload cannot leave metrics from the first one on screen.
+
+    The body may be gzipped; see GZIP_HEADER. Clients that cannot compress simply omit the
+    header and are handled exactly as before.
     """
     raw = await file.read()
-    if len(raw) > MAX_UPLOAD_BYTES:
+    compressed = (x_upload_encoding or "").strip().lower() == "gzip"
+
+    # An uncompressed body is capped directly. A compressed one is capped inside `_gunzip`,
+    # against its expanded size, so the limit still means what it says.
+    if not compressed and len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=413, detail=f"File exceeds the {MAX_UPLOAD_LABEL} limit."
         )
 
     name = (file.filename or "dataset.csv").strip()
     try:
+        if compressed:
+            sent = len(raw)
+            raw = await to_thread.run_sync(_gunzip, raw, MAX_UPLOAD_BYTES)
+            logger.info(
+                "Upload %s arrived gzipped: %.2fMB on the wire, %.2fMB decompressed.",
+                name, sent / 1_048_576, len(raw) / 1_048_576,
+            )
         df, coerced = await to_thread.run_sync(_parse_upload, raw, name)
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Failed to parse upload %s", name)
         raise HTTPException(status_code=422, detail=f"Could not read the file: {exc}") from exc
