@@ -400,3 +400,69 @@ def test_a_genuinely_empty_reply_is_still_reported():
 
     assert client._parse(_Response(payload)) is None
     assert "empty response" in client._last_error
+
+
+# -- 6. Two-column charts have data to draw -----------------------------------
+#
+# The visualization advisor names a scatter plot's columns `col_x`/`col_y` and a time
+# series' column `time_col`. Only `column` had an endpoint behind it, so those cards
+# opened onto "This recommendation names no column" -- a chart the app recommended and
+# then could not draw. These pin the endpoint that backs them.
+
+def _pair_session():
+    client, headers = _client_with_session()
+    rng = np.random.default_rng(0)
+    rows = 5_000
+    speed = rng.normal(50, 10, rows)
+    frame = pd.DataFrame({
+        "Date": pd.date_range("2020-01-01", periods=rows, freq="h").astype(str),
+        "Speed": speed.round(2),
+        "Durability": (speed * 1.8 + rng.normal(0, 2, rows)).round(2),
+        "City": rng.choice(["A", "B", "C"], rows),
+    })
+    upload = client.post(
+        "/api/datasets",
+        headers=headers,
+        files={"file": ("pairs.csv", frame.to_csv(index=False), "text/csv")},
+    )
+    assert upload.status_code == 200, upload.text
+    return client, headers
+
+
+def test_two_numeric_columns_come_back_as_scatter_points():
+    client, headers = _pair_session()
+
+    body = client.get("/api/datasets/xy?x=Speed&y=Durability", headers=headers).json()
+
+    assert body["kind"] == "points"
+    assert body["rows"] == 5_000
+    assert all(isinstance(point["x"], float) for point in body["data"])
+
+
+def test_a_date_axis_comes_back_ordered_as_a_series():
+    client, headers = _pair_session()
+
+    body = client.get("/api/datasets/xy?x=Date&y=Speed", headers=headers).json()
+
+    assert body["kind"] == "series"
+    labels = [point["x"] for point in body["data"]]
+    assert labels == sorted(labels), "a time series drawn out of order is not a time series"
+
+
+def test_a_large_frame_is_sampled_rather_than_sent_whole():
+    """Every row of a 550k-row frame would be 550k SVG nodes in the browser."""
+    client, headers = _pair_session()
+
+    body = client.get("/api/datasets/xy?x=Speed&y=Durability", headers=headers).json()
+
+    assert body["sampled"] is True
+    assert len(body["data"]) <= 2_000
+    # Sampling from the head would show only the first hours of the file.
+    assert body["data"][-1]["x"] != body["data"][0]["x"]
+
+
+def test_unknown_and_unplottable_columns_are_refused_not_drawn():
+    client, headers = _pair_session()
+
+    assert client.get("/api/datasets/xy?x=Nope&y=Speed", headers=headers).status_code == 404
+    assert client.get("/api/datasets/xy?x=Speed&y=City", headers=headers).status_code == 422

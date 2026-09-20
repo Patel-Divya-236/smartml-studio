@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   api,
+  type ColumnPairResult,
   type DistributionResult,
   type ProfileResult,
   type Recommendation,
 } from '../api/client';
-import { CategoryBarChart, DonutChart, RankedBarChart } from '../components/charts';
+import {
+  CategoryBarChart,
+  CurveChart,
+  DonutChart,
+  RankedBarChart,
+  ScatterPlot,
+} from '../components/charts';
 import { RecommendationCard } from '../components/RecommendationCard';
 import {
   Alert,
@@ -174,9 +181,28 @@ function ChartFor({
     String(recommendation.metadata.column ?? '') ||
     (chartType.startsWith('target') ? String(profile.summary.target_column ?? '') : '');
 
+  // Scatter and time-series recommendations name their columns as `col_x`/`col_y` and
+  // `time_col`, not `column`. Reading only `column` is what left these cards showing
+  // "This recommendation names no column" instead of a chart.
+  const colX = String(recommendation.metadata.col_x ?? recommendation.metadata.time_col ?? '');
+  const colY =
+    String(recommendation.metadata.col_y ?? '') ||
+    (colX ? String(profile.summary.target_column ?? '') : '');
+  const isPair = Boolean(colX && colY);
+
   const isCorrelation = chartType.includes('correlation');
   const [distribution, setDistribution] = useState<DistributionResult | null>(null);
+  const [pair, setPair] = useState<ColumnPairResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isPair) return;
+    setPair(null);
+    api
+      .columnPair(colX, colY)
+      .then(setPair)
+      .catch((err) => setError(err instanceof Error ? err.message : 'Could not load the columns.'));
+  }, [colX, colY, isPair]);
 
   useEffect(() => {
     if (isCorrelation || !column) return;
@@ -218,6 +244,27 @@ function ChartFor({
   }
 
   if (error) return <Alert tone="danger">{error}</Alert>;
+
+  if (isPair) {
+    if (!pair) return <Loading label="Loading columns…" />;
+    if (!pair.data.length) return <EmptyState title="These columns have no rows in common" />;
+    return (
+      <>
+        {pair.kind === 'series' ? (
+          <CurveChart data={pair.data} xKey="x" yKey="y" height={340} />
+        ) : (
+          <ScatterPlot data={pair.data} xKey="x" yKey="y" height={340} />
+        )}
+        <p className="xs muted" style={{ marginTop: 'var(--space-3)' }}>
+          {colX} (horizontal) against {colY} (vertical).{' '}
+          {pair.sampled
+            ? `Showing ${pair.data.length.toLocaleString()} points sampled evenly from ${pair.rows.toLocaleString()} rows — plotting every row would be an unreadable block of ink.`
+            : `All ${pair.rows.toLocaleString()} rows shown.`}
+        </p>
+      </>
+    );
+  }
+
   if (!column) return <EmptyState title="This recommendation names no column" />;
   if (!distribution) return <Loading label="Loading distribution…" />;
   if (!distribution.data.length) return <EmptyState title="This column has no values to plot" />;

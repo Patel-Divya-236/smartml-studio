@@ -10,7 +10,23 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-import shap
+# shap is imported on first use, not at module import. It pulls in matplotlib and costs
+# ~56MB of resident memory -- measured against a 512MB deploy target where the app's
+# imports alone already take 255MB, leaving only ~257MB for the uploaded frame and the
+# copies preprocessing makes of it. Explanations run at the end of the pipeline, if at
+# all, so that 56MB should not be held for every upload that never asks for one.
+def _shap():
+    """Return the shap module, importing it the first time it is needed."""
+    global shap
+    if shap is None:
+        import shap as module
+
+        shap = module
+    return shap
+
+
+shap = None
+
 
 class ModelExplainer:
     """Generates SHAP-based explanations for trained models."""
@@ -29,9 +45,9 @@ class ModelExplainer:
         
         # Check background training data size and summarize to speed up Kernel SHAP
         if len(X_train) > 20:
-            # Summarize training data using shap.kmeans or sampling
+            # Summarize training data using _shap().kmeans or sampling
             try:
-                background = shap.kmeans(X_train, 5)
+                background = _shap().kmeans(X_train, 5)
             except Exception:
                 background = X_train[:5]
         else:
@@ -46,25 +62,25 @@ class ModelExplainer:
         try:
             model_class_name = model.__class__.__name__
             if "Tree" in model_class_name or "Forest" in model_class_name or "XGB" in model_class_name or "LGBM" in model_class_name or "CatBoost" in model_class_name:
-                explainer = shap.TreeExplainer(model)
+                explainer = _shap().TreeExplainer(model)
                 explainer_type = "Tree"
                 shap_values = explainer(X_test)
             elif "Linear" in model_class_name or "Logistic" in model_class_name:
-                explainer = shap.LinearExplainer(model, background)
+                explainer = _shap().LinearExplainer(model, background)
                 explainer_type = "Linear"
                 shap_values = explainer(X_test)
             else:
                 # Fallback to Kernel/Generic explainer
                 # To be fast, we evaluate on a maximum of 10 test samples if it's Kernel SHAP
                 test_subset = X_test[:10] if len(X_test) > 10 else X_test
-                explainer = shap.KernelExplainer(model.predict, background)
+                explainer = _shap().KernelExplainer(model.predict, background)
                 explainer_type = "Kernel"
                 shap_values = explainer.shap_values(test_subset)
         except Exception as e:
             logger.warning("Failed standard SHAP explainer initialization: %s. Using basic Kernel fallback.", str(e))
             try:
                 test_subset = X_test[:5] if len(X_test) > 5 else X_test
-                explainer = shap.KernelExplainer(model.predict, background)
+                explainer = _shap().KernelExplainer(model.predict, background)
                 explainer_type = "Kernel"
                 shap_values = explainer.shap_values(test_subset)
             except Exception as inner_e:
@@ -304,7 +320,7 @@ def select_explanation_slice(
 
     names = list(feature_names)[: len(row)] if feature_names is not None else None
 
-    return shap.Explanation(
+    return _shap().Explanation(
         values=row,
         base_values=float(base) if base is not None else 0.0,
         data=data,

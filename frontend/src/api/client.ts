@@ -302,6 +302,11 @@ export const api = {
   distribution: (column: string) =>
     request<DistributionResult>(`/datasets/distribution/${encodeURIComponent(column)}`),
 
+  columnPair: (x: string, y: string) =>
+    request<ColumnPairResult>(
+      `/datasets/xy?x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}`,
+    ),
+
   visualizationAdvice: () => request<{ recommendations: Recommendation[] }>('/advisors/visualization'),
   preprocessingAdvice: () =>
     request<{ recommendations: Recommendation[]; by_column: Record<string, Recommendation[]> }>(
@@ -469,6 +474,15 @@ export interface DistributionResult {
   avg_label_length?: number;
   truncated?: boolean;
   data: { name: string; count: number; share?: number; midpoint?: number }[];
+}
+
+export interface ColumnPairResult {
+  x: string;
+  y: string;
+  kind: 'points' | 'series' | 'empty';
+  rows: number;
+  sampled: boolean;
+  data: { x: number | string; y: number }[];
 }
 
 export interface Recommendation {

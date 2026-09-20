@@ -372,6 +372,69 @@ def column_distribution(
     }
 
 
+# A scatter plot of 550,000 rows is 550,000 SVG nodes: the browser stalls, and the picture
+# is a solid block of ink that shows nothing a sample of 2,000 does not. Sampling is taken
+# evenly across the frame rather than from the head, so the plot reflects the whole file.
+XY_SAMPLE_ROWS = 2_000
+
+
+@router.get("/xy")
+def column_pair(
+    x: str,
+    y: str,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Return points for a chart that needs two columns.
+
+    The distribution endpoint answers one column at a time, which covers histograms and
+    frequency bars but not the scatter and time-series recommendations -- those name their
+    columns as `col_x`/`col_y` and `time_col`, and had no endpoint to draw from at all.
+
+    Two shapes come back. Both columns numeric gives `kind: "points"` for a scatter. A
+    non-numeric x -- a date column, in practice -- gives `kind: "series"`, ordered by x, to
+    be drawn as a line: a scatter with a categorical axis would place the points in
+    arbitrary order.
+    """
+    df: pd.DataFrame = require(session, "dataset", "upload")
+    for name in (x, y):
+        if name not in df.columns:
+            raise HTTPException(status_code=404, detail=f"Column '{name}' is not in the dataset.")
+
+    pair = df[[x, y]].dropna()
+    if pair.empty:
+        return {"x": x, "y": y, "kind": "empty", "data": [], "rows": 0, "sampled": False}
+
+    if not pd.api.types.is_numeric_dtype(pair[y]):
+        raise HTTPException(status_code=422, detail=f"Column '{y}' is not numeric, so it cannot be plotted on the value axis.")
+
+    numeric_x = pd.api.types.is_numeric_dtype(pair[x])
+    if not numeric_x:
+        # Ordering matters for a line: sort by the x values themselves, parsing them as
+        # timestamps when they are dates so "10/2" does not sort before "2/2".
+        parsed = pd.to_datetime(pair[x], errors="coerce")
+        pair = pair.assign(_order=parsed if parsed.notna().mean() > 0.5 else pair[x].astype(str))
+        pair = pair.sort_values("_order").drop(columns="_order")
+
+    total = int(len(pair))
+    sampled = total > XY_SAMPLE_ROWS
+    if sampled:
+        step = total // XY_SAMPLE_ROWS + 1
+        pair = pair.iloc[::step]
+
+    data = [
+        {"x": float(row[0]) if numeric_x else str(row[0]), "y": float(row[1])}
+        for row in pair.itertuples(index=False, name=None)
+    ]
+    return {
+        "x": x,
+        "y": y,
+        "kind": "points" if numeric_x else "series",
+        "rows": total,
+        "sampled": sampled,
+        "data": data,
+    }
+
+
 def _target_warnings(df: pd.DataFrame, column: str, problem_type: str) -> list[dict]:
     """Flag target columns that will not train usefully.
 
