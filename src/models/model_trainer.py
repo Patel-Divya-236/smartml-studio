@@ -27,8 +27,8 @@ from xgboost import XGBClassifier, XGBRegressor
 from lightgbm import LGBMClassifier, LGBMRegressor
 from catboost import CatBoostClassifier, CatBoostRegressor
 
-from src.models.custom_svm import CustomSVM
-from src.models.custom_knn import CustomKNN
+from src.models.custom_svm import CustomSVM, CustomSVR
+from src.models.custom_knn import CustomKNN, CustomKNNRegressor
 
 logger = logging.getLogger(__name__)
 
@@ -83,9 +83,16 @@ class ModelTrainer:
         elif name == "KNN":
             return KNeighborsClassifier() if is_class else KNeighborsRegressor()
         elif name == "Custom SVM":
-            return SVC(probability=True, random_state=42, max_iter=1000) if is_class else SVR(max_iter=1000)
+            # The from-scratch solvers in src/models/. These used to return the same
+            # sklearn estimators as the "SVM" and "KNN" entries above, which put two
+            # identical models side by side in the comparison table under different names.
+            return (
+                CustomSVM(kernel="rbf", C=1.0, gamma=0.1, n_iters=500)
+                if is_class
+                else CustomSVR(C=1.0, epsilon=0.1, learning_rate=0.01, n_iters=500)
+            )
         elif name == "Custom KNN":
-            return KNeighborsClassifier() if is_class else KNeighborsRegressor()
+            return CustomKNN() if is_class else CustomKNNRegressor()
 
 
         else:

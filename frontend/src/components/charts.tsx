@@ -279,6 +279,73 @@ export function ScatterPlot({
   );
 }
 
+/**
+ * Correlation matrix drawn as an actual heat grid.
+ *
+ * The card that opens this is titled "Feature Correlation Heatmap", and it used to open
+ * onto a horizontal bar chart of the strongest pairs. A bar list answers "which two
+ * columns move together most" but not "how does everything relate to everything", which
+ * is the question a heatmap exists to answer -- and it is what the card promised.
+ *
+ * Colour is diverging because the sign matters: r = -0.9 is as strong a relationship as
+ * r = +0.9, and a single-hue ramp would show it as almost nothing.
+ */
+export function CorrelationHeatmap({
+  matrix,
+  labels,
+}: {
+  matrix: Record<string, Record<string, number>>;
+  labels: string[];
+}) {
+  const palette = usePalette();
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table className="data" style={{ tableLayout: 'fixed', fontSize: 11 }}>
+        <thead>
+          <tr>
+            <th style={{ width: 132 }} />
+            {labels.map((label) => (
+              <th key={label} className="num" title={label} style={{ width: 54 }}>
+                {truncateLabel(label, 8)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {labels.map((row) => (
+            <tr key={row}>
+              <th scope="row" title={row} style={{ whiteSpace: 'nowrap' }}>
+                {truncateLabel(row, 18)}
+              </th>
+              {labels.map((col) => {
+                const r = matrix[row]?.[col];
+                if (typeof r !== 'number' || !Number.isFinite(r)) {
+                  return <td key={col} className="num muted">—</td>;
+                }
+                const hue = r < 0 ? palette.action : palette.primary;
+                return (
+                  <td
+                    key={col}
+                    className="num"
+                    title={`${row} × ${col}: r = ${r.toFixed(3)}`}
+                    style={{
+                      background: `color-mix(in srgb, ${hue} ${Math.abs(r) * 78}%, transparent)`,
+                      fontWeight: row === col ? 600 : 400,
+                    }}
+                  >
+                    {r.toFixed(2)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /** Confusion matrix rendered as a heat grid rather than a chart library plot. */
 export function ConfusionMatrix({
   matrix,

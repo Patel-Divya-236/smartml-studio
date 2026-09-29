@@ -8,6 +8,7 @@ import {
 } from '../api/client';
 import {
   CategoryBarChart,
+  CorrelationHeatmap,
   CurveChart,
   DonutChart,
   RankedBarChart,
@@ -28,6 +29,9 @@ import {
 import { usePipeline } from '../store/pipeline';
 
 type TabId = 'all' | 'distribution' | 'correlation' | 'target';
+
+/** Columns shown in the correlation grid. Past this the cells are too small to read. */
+const HEATMAP_LIMIT = 14;
 
 /**
  * Chart recommendations, each rendered from data the backend computes on demand.
@@ -232,14 +236,38 @@ function ChartFor({
     if (!top.length) {
       return <EmptyState title="No numeric pairs to correlate" />;
     }
+
+    // A 30-column dataset is a 900-cell grid with unreadable 12px labels. Ranking the
+    // columns by how strongly they relate to anything else keeps the interesting ones
+    // and drops the rows that are near-zero all the way across.
+    const all = Object.keys(matrix);
+    const strengthOf = (col: string) =>
+      Math.max(
+        0,
+        ...Object.entries(matrix[col] ?? {})
+          .filter(([other]) => other !== col)
+          .map(([, r]) => (typeof r === 'number' && Number.isFinite(r) ? Math.abs(r) : 0)),
+      );
+    const shown = [...all].sort((a, b) => strengthOf(b) - strengthOf(a)).slice(0, HEATMAP_LIMIT);
+    const labels = all.filter((col) => shown.includes(col));
+
     return (
-      <>
-        <RankedBarChart data={top} xKey="r" yKey="name" height={340} diverging />
-        <p className="xs muted" style={{ marginTop: 'var(--space-3)' }}>
-          Strongest feature pairs by absolute Pearson r. Copper bars are negative
-          correlations.
+      <div className="stack">
+        <CorrelationHeatmap matrix={matrix} labels={labels} />
+        <p className="xs muted">
+          Pearson r for every pair of numeric columns. Teal is positive, copper negative,
+          and the stronger the colour the stronger the relationship.
+          {all.length > labels.length
+            ? ` Showing the ${labels.length} most related of ${all.length} numeric columns — the rest correlate with nothing and would be a grid of blank cells.`
+            : ''}
         </p>
-      </>
+        <details>
+          <summary className="small">Strongest pairs, ranked</summary>
+          <div style={{ marginTop: 'var(--space-3)' }}>
+            <RankedBarChart data={top} xKey="r" yKey="name" height={340} diverging />
+          </div>
+        </details>
+      </div>
     );
   }
 
@@ -316,6 +344,21 @@ function ChartFor({
   }
 
   const usePie = chartType.includes('pie') || chartType.includes('donut');
+
+  // Bins have a natural order, so a histogram is drawn as vertical bars left to right.
+  // The ranked horizontal layout below is for categories, where the order IS the ranking;
+  // applying it to bins turned a distribution into a league table of bucket sizes.
+  if (distribution.kind === 'histogram') {
+    return (
+      <>
+        <CategoryBarChart data={distribution.data} xKey="name" yKey="count" height={320} />
+        <p className="xs muted" style={{ marginTop: 'var(--space-3)' }}>
+          {distribution.column} across {distribution.data.length} equal-width bins, in
+          value order.
+        </p>
+      </>
+    );
+  }
 
   return (
     <>
