@@ -27,6 +27,7 @@ from xgboost import XGBClassifier, XGBRegressor
 from lightgbm import LGBMClassifier, LGBMRegressor
 from catboost import CatBoostClassifier, CatBoostRegressor
 
+from config.settings import SETTINGS
 from src.models.custom_svm import CustomSVM, CustomSVR
 from src.models.custom_knn import CustomKNN, CustomKNNRegressor
 
@@ -60,14 +61,37 @@ class ModelTrainer:
         """Instantiate target model class by name matching the problem type."""
         is_class = self.problem_type == "Classification"
 
+        # Every library gets an explicit thread count. Left to themselves they size their
+        # working arena from the host's core count, which a throttled container inherits
+        # in full -- see SETTINGS.TRAINING_THREADS for the measurements.
+        threads = SETTINGS.TRAINING_THREADS
+
         if name == "XGBoost":
-            return XGBClassifier(random_state=42, eval_metric="logloss") if is_class else XGBRegressor(random_state=42)
+            return (
+                XGBClassifier(random_state=42, eval_metric="logloss", n_jobs=threads)
+                if is_class
+                else XGBRegressor(random_state=42, n_jobs=threads)
+            )
         elif name == "LightGBM":
-            return LGBMClassifier(random_state=42, verbose=-1) if is_class else LGBMRegressor(random_state=42, verbose=-1)
+            return (
+                LGBMClassifier(random_state=42, verbose=-1, n_jobs=threads)
+                if is_class
+                else LGBMRegressor(random_state=42, verbose=-1, n_jobs=threads)
+            )
         elif name == "CatBoost":
-            return CatBoostClassifier(random_state=42, verbose=0) if is_class else CatBoostRegressor(random_state=42, verbose=0)
+            return (
+                CatBoostClassifier(random_state=42, verbose=0, thread_count=threads)
+                if is_class
+                else CatBoostRegressor(random_state=42, verbose=0, thread_count=threads)
+            )
         elif name == "Random Forest":
-            return RandomForestClassifier(n_estimators=50, max_depth=12, min_samples_split=10, random_state=42) if is_class else RandomForestRegressor(n_estimators=50, max_depth=12, min_samples_split=10, random_state=42)
+            return (
+                RandomForestClassifier(n_estimators=50, max_depth=12, min_samples_split=10,
+                                       random_state=42, n_jobs=threads)
+                if is_class
+                else RandomForestRegressor(n_estimators=50, max_depth=12, min_samples_split=10,
+                                           random_state=42, n_jobs=threads)
+            )
 
         elif name == "Logistic Regression":
             # For regression, we fall back to Linear Regression

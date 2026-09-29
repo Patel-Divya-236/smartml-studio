@@ -6,6 +6,7 @@ business logic. Import the module-level SETTINGS instance:
     from config.settings import SETTINGS
 """
 
+import os
 from dataclasses import dataclass, field
 
 
@@ -16,6 +17,49 @@ class AppSettings:
     Every numeric threshold used by profilers, advisors, or UI logic
     is defined here rather than hard-coded in business logic.
     """
+
+    # ── Training resources ─────────────────────────────────────────
+    TRAINING_THREADS: int = int(os.environ.get("SMARTML_TRAINING_THREADS", "1"))
+    """Threads each boosting library may use.
+
+    One by default because the deploy target grants 0.1 of a CPU: a library that reads
+    the host's core count and starts twelve workers only adds contention there. Measured
+    per model in a fresh process on a 40,000-row frame, the memory difference between one
+    thread and twelve is small -- XGBoost 114MB against 111MB, CatBoost 17MB against 23MB
+    -- so this is a CPU setting, not the fix for an out-of-memory kill. MEMORY_BUDGET_MB
+    below is that. Raise this on a host with real cores (see DEPLOYMENT.md).
+    """
+
+    MEMORY_BUDGET_MB: int = int(os.environ.get("SMARTML_MEMORY_BUDGET_MB", "512"))
+    """Resident memory this process may reach before a training job is refused.
+
+    Matches the free Render instance this deploys to. The point is not to save memory --
+    it is to fail in a way that keeps the session. Measured on a 50,000-row, 13MB upload,
+    the process reaches ~495MB by the end of training: 211MB of that is imports before any
+    data arrives, ~39MB is the session itself, and the rest is what the boosting libraries
+    allocate and never return (XGBoost alone accounts for ~114MB).
+
+    Going over does not slow anything down; the host kills the process. That takes the
+    in-memory session store with it, so every user sees "Complete the upload step first"
+    and re-uploads. Refusing one job costs a model instead of the whole pipeline.
+
+    Raise it to match the instance on a bigger host (see DEPLOYMENT.md).
+    """
+
+    MODEL_MEMORY_COST_MB: dict[str, int] = field(default_factory=lambda: {
+        # Measured per model in its own process, fitting 40,000 rows x 29 features and
+        # predicting, counting only what is still resident afterwards.
+        "XGBoost": 114,
+        "CatBoost": 23,
+        "Random Forest": 8,
+        "LightGBM": 5,
+        "Custom SVM": 5,
+        "Custom KNN": 12,   # keeps the training set; that is the algorithm, not overhead
+    })
+    """What each model costs, used to decide whether a job fits the budget."""
+
+    DEFAULT_MODEL_MEMORY_COST_MB: int = 10
+    """Assumed cost for a model not listed above -- the cheap sklearn estimators."""
 
     # ── Dataset Profiling ──────────────────────────────────────────
     HIGH_CARDINALITY_THRESHOLD: int = 20

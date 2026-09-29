@@ -20,7 +20,9 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from pydantic import BaseModel
 
 from backend.api.deps import get_session, require
+from backend.core.memory import current_usage_mb, models_that_fit
 from backend.core.session import STORE, Session
+from config.settings import SETTINGS
 from src.evaluation.metrics import compute_metrics
 from src.models.model_trainer import SUPPORTED_MODELS, ModelTrainer
 
@@ -131,9 +133,34 @@ def available_models(session: Session = Depends(get_session)) -> dict:
 @router.post("/jobs")
 def start_job(payload: TrainRequest, session: Session = Depends(get_session)) -> dict:
     """Start a training run and return its job id immediately."""
-    require(session, "preprocessed_train", "preprocessing")
+    train = require(session, "preprocessed_train", "preprocessing")
     if not payload.models:
         raise HTTPException(status_code=422, detail="Select at least one model.")
+
+    # Refuse what will not fit rather than letting the host kill the process. The kill
+    # empties the in-memory session store, so the cost of finding out the hard way is not
+    # a failed job -- it is every user being sent back to re-upload their dataset.
+    fitting = models_that_fit(payload.models, len(train))
+    if len(fitting) < len(payload.models):
+        dropped = [name for name in payload.models if name not in fitting]
+        used = round(current_usage_mb())
+        if not fitting:
+            raise HTTPException(
+                status_code=507,
+                detail=(
+                    f"Not enough memory to train {dropped[0]} on {len(train):,} rows. "
+                    f"The server is using {used}MB of its {SETTINGS.MEMORY_BUDGET_MB}MB "
+                    "limit. Train fewer models at once, or use a smaller sample."
+                ),
+            )
+        raise HTTPException(
+            status_code=507,
+            detail=(
+                f"Only {len(fitting)} of {len(payload.models)} models fit in the "
+                f"remaining memory ({used}MB of {SETTINGS.MEMORY_BUDGET_MB}MB used). "
+                f"Start with {', '.join(fitting)} and run {', '.join(dropped)} after."
+            ),
+        )
 
     session.set("selected_models", payload.models)
     job = Job(uuid.uuid4().hex, session.id, payload.models)

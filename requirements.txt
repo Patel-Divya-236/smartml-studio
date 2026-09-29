@@ -20,3 +20,7 @@ uvicorn[standard]>=0.30
 pydantic>=2.7
 python-multipart>=0.0.9
 httpx>=0.27
+
+# Reads this process resident memory so training can refuse a job that would
+# exceed the instance limit instead of being out-of-memory killed mid-run.
+psutil>=5.9

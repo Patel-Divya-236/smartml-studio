@@ -19,6 +19,9 @@ import time
 
 import numpy as np
 import pandas as pd
+
+from backend.core import memory
+from config.settings import SETTINGS
 import pytest
 
 from backend.api.datasets import _coerce_numeric_like
@@ -466,3 +469,94 @@ def test_unknown_and_unplottable_columns_are_refused_not_drawn():
 
     assert client.get("/api/datasets/xy?x=Nope&y=Speed", headers=headers).status_code == 404
     assert client.get("/api/datasets/xy?x=Speed&y=City", headers=headers).status_code == 422
+
+
+# -- 7. Training refuses what will not fit -------------------------------------
+#
+# The instance has 512MB. Going over does not slow training down, it kills the process,
+# and because sessions live in a module-level dict that takes every uploaded dataset with
+# it -- so one model too many sends every user back to "Complete the upload step first".
+# Measured on a 50,000-row upload the process reaches ~495MB by the end of training, so
+# this is a real boundary, not a hypothetical one.
+
+def _trained_session(rows: int = 300):
+    client, headers = _client_with_session()
+    rng = np.random.default_rng(0)
+    frame = pd.DataFrame({
+        "age": rng.integers(18, 80, rows),
+        "score": rng.normal(50, 10, rows).round(3),
+        "churn": rng.choice([0, 1], rows),
+    })
+    client.post("/api/datasets", headers=headers,
+                files={"file": ("t.csv", frame.to_csv(index=False), "text/csv")}).raise_for_status()
+    client.post("/api/datasets/target", headers=headers,
+                json={"target_column": "churn"}).raise_for_status()
+    client.post("/api/pipeline/preprocess", headers=headers,
+                json={"test_size": 0.2, "impute": {}, "encode": {}, "scale": {}}).raise_for_status()
+    return client, headers
+
+
+def test_a_job_that_fits_is_not_refused():
+    client, headers = _trained_session()
+
+    response = client.post("/api/training/jobs", headers=headers,
+                           json={"models": ["Logistic Regression"]})
+
+    assert response.status_code == 200
+
+
+def _budget(monkeypatch, megabytes: int) -> None:
+    """Shrink the budget. SETTINGS is frozen, so the whole object is swapped."""
+    import dataclasses
+
+    from backend.api import training as training_api
+
+    small = dataclasses.replace(SETTINGS, MEMORY_BUDGET_MB=megabytes)
+    monkeypatch.setattr(memory, "SETTINGS", small)
+    monkeypatch.setattr(training_api, "SETTINGS", small)
+
+
+def test_a_job_over_the_budget_is_refused_with_the_session_intact(monkeypatch):
+    """507, not a process death. The dataset must still be there afterwards."""
+    client, headers = _trained_session()
+    _budget(monkeypatch, 1)
+
+    response = client.post("/api/training/jobs", headers=headers,
+                           json={"models": ["XGBoost"]})
+
+    assert response.status_code == 507
+    assert "memory" in response.json()["detail"].lower()
+    # The point of refusing: the pipeline is still usable.
+    assert client.get("/api/pipeline/state", headers=headers).status_code == 200
+
+
+def test_a_partial_fit_names_which_models_to_start_with(monkeypatch):
+    """Telling the user "out of memory" is not actionable; naming the split is."""
+    monkeypatch.setattr(memory, "current_usage_mb", lambda: 0.0)
+    _budget(monkeypatch, memory.HEADROOM_MB + 20)
+
+    fitting = memory.models_that_fit(["LightGBM", "Custom SVM", "XGBoost"], rows=40_000)
+
+    assert fitting == ["LightGBM", "Custom SVM"], "XGBoost costs 114MB and must not fit in 20"
+
+
+def test_the_requested_order_is_kept_when_trimming(monkeypatch):
+    """Sorting cheapest-first would make the comparison table depend on memory pressure.
+
+    XGBoost is the expensive one and it is in the middle, so a cost-ordered
+    implementation would return the two cheap models and drop it from between them.
+    """
+    monkeypatch.setattr(memory, "current_usage_mb", lambda: 0.0)
+    _budget(monkeypatch, memory.HEADROOM_MB + 20)
+
+    fitting = memory.models_that_fit(["LightGBM", "XGBoost", "Custom SVM"], rows=40_000)
+
+    assert fitting == ["LightGBM"], "trimming must stop at the first model that does not fit"
+
+
+def test_cost_scales_with_the_rows_actually_given():
+    """A boosting library's working set tracks the data, so the estimate must too."""
+    small = memory.estimate_cost_mb(["XGBoost"], rows=10_000)
+    large = memory.estimate_cost_mb(["XGBoost"], rows=80_000)
+
+    assert large > small * 3
