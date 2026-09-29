@@ -27,6 +27,7 @@ from xgboost import XGBClassifier, XGBRegressor
 from lightgbm import LGBMClassifier, LGBMRegressor
 from catboost import CatBoostClassifier, CatBoostRegressor
 
+from src.runtime.memory import release_memory
 from config.settings import SETTINGS
 from src.models.custom_svm import CustomSVM, CustomSVR
 from src.models.custom_knn import CustomKNN, CustomKNNRegressor
@@ -150,6 +151,11 @@ class ModelTrainer:
         total = len(selected_models)
         for name in selected_models:
             logger.info("Training model: %s", name)
+            # Each library's fit leaves a working arena behind that the next library does
+            # not reuse -- XGBoost's ~112MB sits beside CatBoost's ~100MB rather than in
+            # it. Handing the finished one back before starting the next is what keeps a
+            # full run inside a 512MB instance. See src/runtime/memory.py.
+            release_memory()
             try:
                 model = self._get_model_instance(name)
                 

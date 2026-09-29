@@ -20,7 +20,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from backend.core import memory
+from src.runtime import memory
 from config.settings import SETTINGS
 import pytest
 
@@ -532,6 +532,7 @@ def test_a_job_over_the_budget_is_refused_with_the_session_intact(monkeypatch):
 
 def test_a_partial_fit_names_which_models_to_start_with(monkeypatch):
     """Telling the user "out of memory" is not actionable; naming the split is."""
+    monkeypatch.setattr(memory, "RECLAIMS_MEMORY", False)
     monkeypatch.setattr(memory, "current_usage_mb", lambda: 0.0)
     _budget(monkeypatch, memory.HEADROOM_MB + 20)
 
@@ -540,12 +541,58 @@ def test_a_partial_fit_names_which_models_to_start_with(monkeypatch):
     assert fitting == ["LightGBM", "Custom SVM"], "XGBoost costs 114MB and must not fit in 20"
 
 
+def test_costs_do_not_stack_where_memory_can_be_reclaimed(monkeypatch):
+    """The Linux path, which is the one the deploy target takes.
+
+    Each library's arena is handed back before the next allocates, so the peak is the
+    single most expensive model rather than the sum. Without this, a 40,000-row run is
+    told to train two models at a time when it could train all of them.
+    """
+    monkeypatch.setattr(memory, "RECLAIMS_MEMORY", True)
+    monkeypatch.setattr(memory, "current_usage_mb", lambda: 0.0)
+    # Room for XGBoost's 114MB alone, nowhere near the 150MB the five would sum to.
+    _budget(monkeypatch, memory.HEADROOM_MB + 120)
+
+    models = ["LightGBM", "XGBoost", "CatBoost", "Random Forest", "Custom SVM"]
+
+    assert memory.models_that_fit(models, rows=40_000) == models
+
+
+def test_costs_stack_where_memory_cannot_be_reclaimed(monkeypatch):
+    """The same budget admits far less when nothing is handed back between models."""
+    monkeypatch.setattr(memory, "RECLAIMS_MEMORY", False)
+    monkeypatch.setattr(memory, "current_usage_mb", lambda: 0.0)
+    _budget(monkeypatch, memory.HEADROOM_MB + 120)
+
+    models = ["LightGBM", "XGBoost", "CatBoost", "Random Forest", "Custom SVM"]
+    fitting = memory.models_that_fit(models, rows=40_000)
+
+    assert fitting == ["LightGBM", "XGBoost"], fitting
+
+
+def test_a_model_too_big_for_the_budget_alone_is_still_refused(monkeypatch):
+    """Reclaiming between models does not make an oversized one fit."""
+    monkeypatch.setattr(memory, "RECLAIMS_MEMORY", True)
+    monkeypatch.setattr(memory, "current_usage_mb", lambda: 0.0)
+    _budget(monkeypatch, memory.HEADROOM_MB + 20)
+
+    assert memory.models_that_fit(["XGBoost"], rows=40_000) == []
+
+
+def test_releasing_memory_is_safe_to_call_and_reports_a_number():
+    """It runs on every platform; only the reclaim itself is Linux-specific."""
+    reclaimed = memory.release_memory()
+
+    assert isinstance(reclaimed, float)
+
+
 def test_the_requested_order_is_kept_when_trimming(monkeypatch):
     """Sorting cheapest-first would make the comparison table depend on memory pressure.
 
     XGBoost is the expensive one and it is in the middle, so a cost-ordered
     implementation would return the two cheap models and drop it from between them.
     """
+    monkeypatch.setattr(memory, "RECLAIMS_MEMORY", False)
     monkeypatch.setattr(memory, "current_usage_mb", lambda: 0.0)
     _budget(monkeypatch, memory.HEADROOM_MB + 20)
 

@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from pydantic import BaseModel
 
 from backend.api.deps import get_session, require
-from backend.core.memory import current_usage_mb, models_that_fit
+from src.runtime.memory import current_usage_mb, models_that_fit
 from backend.core.session import STORE, Session
 from config.settings import SETTINGS
 from src.evaluation.metrics import compute_metrics
