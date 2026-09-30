@@ -53,8 +53,8 @@ class AppSettings:
         "CatBoost": 23,
         "Random Forest": 8,
         "LightGBM": 5,
-        "Custom SVM": 5,
-        "Custom KNN": 12,   # keeps the training set; that is the algorithm, not overhead
+        "SVM": 5,
+        "KNN": 12,   # keeps the training set; that is the algorithm, not overhead
     })
     """What each model costs, used to decide whether a job fits the budget."""
 

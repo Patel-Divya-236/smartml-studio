@@ -202,7 +202,7 @@ class PreprocessingAdvisor(BaseAdvisor):
                         confidence_score=0.92,
                         reason=f"Column '{col}' is normally distributed without extreme outliers.",
                         why_explanation="Standard scaling centers variables to zero mean and unit variance. "
-                                        "This is highly recommended for gradient-descent models (Neural Networks, Custom SVM, Custom kNN).",
+                                        "This is highly recommended for distance- and gradient-based models (SVM, kNN, Logistic Regression).",
                         category="scaling",
                         metadata={"column": col, "action": "standard"}
                     )

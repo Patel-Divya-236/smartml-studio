@@ -47,12 +47,3 @@ def sample_regression_df() -> pd.DataFrame:
     })
 
 
-@pytest.fixture
-def sample_classification_arrays(
-    sample_classification_df: pd.DataFrame,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return (X, y) numpy arrays from the classification fixture."""
-    df = sample_classification_df
-    X = df.drop(columns=["target", "category"]).values
-    y = df["target"].values
-    return X, y

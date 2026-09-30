@@ -219,7 +219,7 @@ smartml-studio/
 ```bash
 pytest                          # run everything
 pytest -v                       # verbose
-pytest tests/test_custom_svm.py # a single suite
+pytest tests/test_profiler.py  # a single suite
 ```
 
 The suite covers the custom SVM and kNN implementations, all three advisors, the

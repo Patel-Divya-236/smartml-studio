@@ -29,8 +29,6 @@ from catboost import CatBoostClassifier, CatBoostRegressor
 
 from src.runtime.memory import release_memory
 from config.settings import SETTINGS
-from src.models.custom_svm import CustomSVM, CustomSVR
-from src.models.custom_knn import CustomKNN, CustomKNNRegressor
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +40,6 @@ SUPPORTED_MODELS: dict[str, list[str]] = {
     "Classification": [
         "XGBoost", "LightGBM", "CatBoost", "Random Forest",
         "Logistic Regression", "Naive Bayes", "SVM", "KNN",
-        "Custom SVM", "Custom KNN",
     ],
     "Regression": [
         "XGBoost", "LightGBM", "CatBoost", "Random Forest",
@@ -107,17 +104,6 @@ class ModelTrainer:
             return SVC(probability=True, random_state=42, max_iter=1000) if is_class else SVR(max_iter=1000)
         elif name == "KNN":
             return KNeighborsClassifier() if is_class else KNeighborsRegressor()
-        elif name == "Custom SVM":
-            # The from-scratch solvers in src/models/. These used to return the same
-            # sklearn estimators as the "SVM" and "KNN" entries above, which put two
-            # identical models side by side in the comparison table under different names.
-            return (
-                CustomSVM(kernel="rbf", C=1.0, gamma=0.1, n_iters=500)
-                if is_class
-                else CustomSVR(C=1.0, epsilon=0.1, learning_rate=0.01, n_iters=500)
-            )
-        elif name == "Custom KNN":
-            return CustomKNN() if is_class else CustomKNNRegressor()
 
 
         else:
@@ -175,7 +161,7 @@ class ModelTrainer:
                     if hasattr(model, "predict_proba"):
                         y_prob = model.predict_proba(X_test)
                     elif hasattr(model, "decision_function"):
-                        # Custom SVM decision function
+                        # Estimators that score without a probability model.
                         y_prob = model.decision_function(X_test)
 
                 results[name] = {

@@ -536,9 +536,9 @@ def test_a_partial_fit_names_which_models_to_start_with(monkeypatch):
     monkeypatch.setattr(memory, "current_usage_mb", lambda: 0.0)
     _budget(monkeypatch, memory.HEADROOM_MB + 20)
 
-    fitting = memory.models_that_fit(["LightGBM", "Custom SVM", "XGBoost"], rows=40_000)
+    fitting = memory.models_that_fit(["LightGBM", "SVM", "XGBoost"], rows=40_000)
 
-    assert fitting == ["LightGBM", "Custom SVM"], "XGBoost costs 114MB and must not fit in 20"
+    assert fitting == ["LightGBM", "SVM"], "XGBoost costs 114MB and must not fit in 20"
 
 
 def test_costs_do_not_stack_where_memory_can_be_reclaimed(monkeypatch):
@@ -553,7 +553,7 @@ def test_costs_do_not_stack_where_memory_can_be_reclaimed(monkeypatch):
     # Room for XGBoost's 114MB alone, nowhere near the 150MB the five would sum to.
     _budget(monkeypatch, memory.HEADROOM_MB + 120)
 
-    models = ["LightGBM", "XGBoost", "CatBoost", "Random Forest", "Custom SVM"]
+    models = ["LightGBM", "XGBoost", "CatBoost", "Random Forest", "SVM"]
 
     assert memory.models_that_fit(models, rows=40_000) == models
 
@@ -564,7 +564,7 @@ def test_costs_stack_where_memory_cannot_be_reclaimed(monkeypatch):
     monkeypatch.setattr(memory, "current_usage_mb", lambda: 0.0)
     _budget(monkeypatch, memory.HEADROOM_MB + 120)
 
-    models = ["LightGBM", "XGBoost", "CatBoost", "Random Forest", "Custom SVM"]
+    models = ["LightGBM", "XGBoost", "CatBoost", "Random Forest", "SVM"]
     fitting = memory.models_that_fit(models, rows=40_000)
 
     assert fitting == ["LightGBM", "XGBoost"], fitting
@@ -596,7 +596,7 @@ def test_the_requested_order_is_kept_when_trimming(monkeypatch):
     monkeypatch.setattr(memory, "current_usage_mb", lambda: 0.0)
     _budget(monkeypatch, memory.HEADROOM_MB + 20)
 
-    fitting = memory.models_that_fit(["LightGBM", "XGBoost", "Custom SVM"], rows=40_000)
+    fitting = memory.models_that_fit(["LightGBM", "XGBoost", "SVM"], rows=40_000)
 
     assert fitting == ["LightGBM"], "trimming must stop at the first model that does not fit"
 
