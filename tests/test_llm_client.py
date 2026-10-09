@@ -192,3 +192,63 @@ def test_authorization_header_is_valid_after_stripping(monkeypatch):
 
     assert header == "Bearer gsk_abc123"
     assert not any(c in header for c in "\r\n")
+
+
+# -- Optional request fields (JSON mode, reasoning effort) ----------------------
+#
+# The planner asks for JSON mode and low reasoning effort. Neither is part of every
+# OpenAI-compatible API, and a provider that does not know a field answers HTTP 400 --
+# which must cost a retry, never the plan.
+
+def test_optional_fields_are_sent_when_given(monkeypatch):
+    sent = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        sent.append((json, timeout))
+        return FakeResponse(200, _ok_payload("{}"))
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    LLMClient(api_key="k").complete(
+        system="s", user="u",
+        response_format={"type": "json_object"},
+        extra={"reasoning_effort": "low"},
+        timeout=12.0,
+    )
+
+    payload, timeout = sent[0]
+    assert payload["response_format"] == {"type": "json_object"}
+    assert payload["reasoning_effort"] == "low"
+    assert timeout == 12.0
+
+
+def test_a_rejected_optional_field_is_retried_without_it(monkeypatch):
+    sent = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        sent.append(json)
+        if "response_format" in json:
+            return FakeResponse(400, text="unknown field response_format")
+        return FakeResponse(200, _ok_payload("plain answer"))
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    text = LLMClient(api_key="k").complete(
+        system="s", user="u", response_format={"type": "json_object"}, extra={"reasoning_effort": "low"}
+    )
+
+    assert text == "plain answer"
+    assert len(sent) == 2
+    assert "response_format" not in sent[1] and "reasoning_effort" not in sent[1]
+
+
+def test_a_plain_bad_request_is_not_retried(monkeypatch):
+    """Without optional fields there is nothing to strip, so a 400 is a real failure."""
+    calls = []
+    monkeypatch.setattr(
+        requests, "post",
+        lambda *a, **k: calls.append(1) or FakeResponse(400, text="bad request"),
+    )
+
+    client = LLMClient(api_key="k")
+    assert client.complete(system="s", user="u") is None
+    assert len(calls) == 1
+    assert "400" in client.last_error

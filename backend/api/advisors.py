@@ -1,9 +1,17 @@
-"""The three rule-based advisors, plus their LLM explanation layer.
+"""The advisors: an LLM planner, a deterministic validator, and rule-based fallbacks.
 
-The advisors decide; the language model only explains. That separation is the point of
-the architecture and is enforced here by keeping the recommendation endpoints entirely
-free of LLM calls — narration lives on its own routes, and a failure there returns 200
-with `narrative: null` so the recommendation is never withheld because a provider is down.
+Preprocessing, feature-engineering and model recommendations come from the planning layer
+in `src/planning/`. The language model proposes a plan for the whole dataset in one call;
+a deterministic validator rejects anything invalid or unsafe to execute; the rule-based
+advisors fill every gap the planner leaves. The model proposes, the validator decides, and
+the user still approves or edits every choice before the pipeline runs.
+
+The planner never withholds a recommendation. With no API key, a timeout, a rate limit or
+an unparseable reply, the endpoints return the rule-based recommendations exactly as they
+were before the planner existed, with `planner.status` saying why.
+
+Visualization stays purely rule-based. Narration ("Explain in plain English") lives on its
+own routes, and a failure there returns 200 with `narrative: null`.
 """
 
 import logging
@@ -19,6 +27,8 @@ from src.advisors.model_advisor import ModelAdvisor
 from src.advisors.preprocessing_advisor import PreprocessingAdvisor
 from src.advisors.visualization_advisor import VisualizationAdvisor
 from src.llm.advisor_narrator import AdvisorNarrator
+from src.planning.merge import merge_models, merge_preprocessing, tag
+from src.planning.service import AdvisorPlan, build_advisor_plan
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/advisors", tags=["advisors"])
@@ -53,16 +63,54 @@ class ExplainColumnRequest(BaseModel):
     recommendations: list[ExplainRequest]
 
 
+def _plan(session: Session) -> AdvisorPlan:
+    """The session's AI plan, computed on first use and cached.
+
+    One planning call covers preprocessing, feature engineering and models together, so
+    whichever advisor page is opened first pays for it and the others read the cache. The
+    lock makes concurrent first requests wait for that one call instead of each making
+    their own. The result is checkpointed: it is the only advisor output that costs a
+    network round trip to recompute, so a restart should not repeat it.
+    """
+    cached = session.get("ai_plan")
+    if cached is not None:
+        return cached
+
+    with session.plan_lock:
+        cached = session.get("ai_plan")
+        if cached is not None:
+            return cached
+        profile = require(session, "profile", "analysis")
+        plan = build_advisor_plan(profile, session.get("target_column"))
+        session.set("ai_plan", plan)
+        session.checkpoint()
+        return plan
+
+
 def _recommend(session: Session, kind: str) -> list[dict]:
-    """Run (or reuse) one advisor's recommendations for the current profile."""
+    """Run (or reuse) one advisor's recommendations for the current profile.
+
+    Preprocessing and model recommendations are the AI plan merged over the rule-based
+    advisor; visualization is the rule-based advisor alone.
+    """
     profile = require(session, "profile", "analysis")
     cache_key = _CACHE_KEYS[kind]
 
     cached = session.get(cache_key)
     if cached is None:
-        cached = _ADVISORS[kind]().recommend(profile)
+        rules = tag(_ADVISORS[kind]().recommend(profile), "rule")
+        if kind == "preprocessing":
+            cached = merge_preprocessing(_plan(session).preprocessing, rules, profile)
+        elif kind == "model":
+            plan = _plan(session)
+            cached = merge_models(plan.models, rules, plan.excluded_models)
+        else:
+            cached = rules
         session.set(cache_key, cached)
-        logger.info("%s advisor produced %d recommendations.", kind, len(cached))
+        logger.info(
+            "%s advisor produced %d recommendations (%d from the AI plan).",
+            kind, len(cached), sum(r.metadata.get("source") == "llm" for r in cached),
+        )
 
     return [recommendation_to_dict(r) for r in cached]
 
@@ -88,13 +136,34 @@ def preprocessing(session: Session = Depends(get_session)) -> dict:
         if column:
             by_column.setdefault(str(column), []).append(rec)
 
-    return {"recommendations": recs, "by_column": by_column}
+    return {
+        "recommendations": recs,
+        "by_column": by_column,
+        "planner": _plan(session).info("preprocessing"),
+    }
 
 
 @router.get("/model")
 def model(session: Session = Depends(get_session)) -> dict:
     """Model recommendations for the detected task type."""
-    return {"recommendations": _recommend(session, "model")}
+    recs = _recommend(session, "model")
+    return {"recommendations": recs, "planner": _plan(session).info("models")}
+
+
+@router.get("/features")
+def features(session: Session = Depends(get_session)) -> dict:
+    """Feature-engineering recommendations from the AI plan.
+
+    There is no rule-based feature advisor: feature engineering is opt-in, and with no
+    plan the step opens with every technique off -- which is a valid pipeline, not a gap.
+    Each recommendation's `metadata.config` holds the exact `FeatureRequest` fields to set.
+    """
+    require(session, "profile", "analysis")
+    plan = _plan(session)
+    return {
+        "recommendations": [recommendation_to_dict(r) for r in plan.feature_engineering],
+        "planner": plan.info("feature_engineering"),
+    }
 
 
 @router.post("/explain")

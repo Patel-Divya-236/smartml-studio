@@ -127,7 +127,8 @@ class AppSettings:
     """Confidence-to-star-rating breakpoints (1★ … 5★)."""
 
     # ── LLM Explanation Layer ──────────────────────────────────────
-    # The LLM narrates deterministic outputs; it never makes a decision.
+    # Narration: the LLM explains decisions that have already been made. The planning
+    # layer below is separate and is the only place it proposes them.
     # Any OpenAI-compatible provider works — set LLM_BASE_URL / LLM_MODEL / LLM_API_KEY
     # in the environment (or secrets.toml) to point at a different one.
 
@@ -162,6 +163,55 @@ class AppSettings:
 
     LLM_MAX_CORRELATIONS: int = 5
     """Top-N strongest feature correlations included in the report payload."""
+
+    # ── LLM Planning Layer ─────────────────────────────────────────
+    # The planner is the one place an LLM *proposes* decisions. Everything it proposes
+    # passes a deterministic validator (src/planning/validator.py) before a user sees it,
+    # and the rule-based advisors fill whatever it skips or gets rejected.
+
+    LLM_PLAN_MAX_TOKENS: int = 6000
+    """Output cap for one planning call.
+
+    Far above the narration cap because the reply is a JSON plan covering every column,
+    and a reasoning model spends part of the same budget thinking first. A plan cut off
+    mid-object is unparseable, so running out here costs the whole plan, not a sentence."""
+
+    LLM_PLAN_TEMPERATURE: float = 0.1
+    """Near-deterministic: the same profile should produce the same plan."""
+
+    LLM_PLAN_TIMEOUT_SECONDS: float = 45.0
+    """Hard timeout for the planning call. On timeout the rule-based advisors take over."""
+
+    LLM_PLAN_REASONING_EFFORT: str = os.environ.get("LLM_PLAN_REASONING_EFFORT", "low")
+    """Passed as `reasoning_effort` to reasoning models, which cuts planning latency.
+
+    Providers that do not recognise the field reject the request with HTTP 400; the
+    client then retries once without it, so an unsupported value costs a round trip,
+    never the plan. Set it to an empty string to stop sending it."""
+
+    PLAN_MAX_COLUMNS: int = 60
+    """Columns described to the planner. Wider datasets send the first 60 non-target
+    columns; the rule-based advisor covers the rest, so nothing is left unconfigured."""
+
+    PLAN_MAX_REASON_CHARS: int = 240
+    """Longest reason kept from the planner. Longer text is truncated, not rejected."""
+
+    ONEHOT_MAX_CARDINALITY: int = 20
+    """Above this many categories, one-hot encoding is rejected by the validator: every
+    category becomes a column, and wide one-hot frames are what exhausted memory on the
+    512MB deploy target."""
+
+    POLY_MAX_NUMERIC: int = 10
+    """Polynomial features are only accepted up to this many numeric columns. Degree 2 on
+    n inputs makes (n+1)(n+2)/2 outputs, so 10 inputs is 66 columns and 30 would be 496."""
+
+    SVM_MAX_ROWS: int = 20_000
+    """Above this many rows, the validator rejects an SVM recommendation as unsafe to run
+    by default. SVC is quadratic in rows: 50,000 rows took 374s on the deploy target,
+    longer than every other model combined. Users can still tick it by hand."""
+
+    MIN_RECOMMENDED_MODELS: int = 3
+    """When fewer validated models than this survive, the rule ranking tops the list up."""
 
 
 # ── Module-level singleton ─────────────────────────────────────────

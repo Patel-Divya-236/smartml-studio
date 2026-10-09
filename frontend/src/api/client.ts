@@ -308,11 +308,23 @@ export const api = {
     ),
 
   visualizationAdvice: () => request<{ recommendations: Recommendation[] }>('/advisors/visualization'),
+  // The first of these three to be requested makes the AI planning call (a few seconds,
+  // up to the server's 45s planner timeout), so they get the long budget. The others then
+  // read the cached plan and return at once.
   preprocessingAdvice: () =>
-    request<{ recommendations: Recommendation[]; by_column: Record<string, Recommendation[]> }>(
-      '/advisors/preprocessing',
-    ),
-  modelAdvice: () => request<{ recommendations: Recommendation[] }>('/advisors/model'),
+    request<{
+      recommendations: Recommendation[];
+      by_column: Record<string, Recommendation[]>;
+      planner: PlannerInfo;
+    }>('/advisors/preprocessing', { timeoutMs: LONG_TIMEOUT_MS }),
+  modelAdvice: () =>
+    request<{ recommendations: Recommendation[]; planner: PlannerInfo }>('/advisors/model', {
+      timeoutMs: LONG_TIMEOUT_MS,
+    }),
+  featureAdvice: () =>
+    request<{ recommendations: Recommendation[]; planner: PlannerInfo }>('/advisors/features', {
+      timeoutMs: LONG_TIMEOUT_MS,
+    }),
   llmStatus: () => request<{ available: boolean; error: string | null }>('/advisors/llm-status'),
   explain: (rec: Recommendation) =>
     request<NarrationResult>('/advisors/explain', {
@@ -493,6 +505,32 @@ export interface Recommendation {
   why_explanation: string;
   category: string;
   metadata: Record<string, any>;
+}
+
+/** Where a recommendation came from: the AI planner (validated) or a rule-based advisor. */
+export type RecommendationSource = 'llm' | 'rule';
+
+export function sourceOf(rec: Recommendation): RecommendationSource {
+  return rec.metadata?.source === 'llm' ? 'llm' : 'rule';
+}
+
+/** One proposal the deterministic validator refused, with the reason. */
+export interface PlanRejection {
+  section: 'preprocessing' | 'feature_engineering' | 'models';
+  item: string;
+  reason: string;
+}
+
+/** What the AI planner did for this dataset. */
+export interface PlannerInfo {
+  /** ok: planned. unavailable: no API key. failed: timeout, rate limit, bad reply. */
+  status: 'ok' | 'unavailable' | 'failed';
+  model: string | null;
+  error: string | null;
+  elapsed_seconds: number;
+  accepted: { preprocessing: number; feature_engineering: number; models: number };
+  /** Rejections for the section this response belongs to. */
+  rejected: PlanRejection[];
 }
 
 export interface NarrationResult {

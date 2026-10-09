@@ -17,6 +17,18 @@ def isolated_session_checkpoints(tmp_path, monkeypatch):
     monkeypatch.setattr(persistence, "SESSION_DIR", tmp_path / "sessions")
 
 
+@pytest.fixture(autouse=True)
+def no_live_llm(monkeypatch):
+    """Keep every test offline unless it supplies its own fake client.
+
+    The advisor endpoints now make a planning call when a key is configured. A developer
+    with LLM_API_KEY exported would otherwise have the suite hit the real provider --
+    slow, rate-limited, and non-deterministic. Tests that exercise the planner inject a
+    fake client instead.
+    """
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+
 @pytest.fixture
 def sample_classification_df() -> pd.DataFrame:
     """Small synthetic classification dataset for unit tests."""

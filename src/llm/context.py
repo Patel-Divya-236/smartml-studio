@@ -68,7 +68,7 @@ def summarise_profile(profile: dict[str, Any]) -> str:
             + ", ".join(f"{k}: {v:.4g}" for k, v in target_summary.items())
         )
 
-    strong = _strong_correlations(profile.get("correlation_matrix", {}) or {})
+    strong = strong_correlations(profile.get("correlation_matrix", {}) or {})
     if strong:
         lines.append(
             "Strongest feature correlations — "
@@ -365,10 +365,15 @@ def _as_scalar(value: Any) -> float | None:
     return float(arr[0])
 
 
-def _strong_correlations(
+def strong_correlations(
     correlation_matrix: dict[str, dict[str, float]],
+    limit: int | None = None,
 ) -> list[tuple[str, str, float]]:
-    """Return the strongest distinct feature pairs above the configured threshold."""
+    """Return the strongest distinct feature pairs above the configured threshold.
+
+    Shared by the narration payloads and the planning digest, so both describe the same
+    relationships to the model. `limit` defaults to SETTINGS.LLM_MAX_CORRELATIONS.
+    """
     seen: set[tuple[str, str]] = set()
     pairs: list[tuple[str, str, float]] = []
 
@@ -389,4 +394,4 @@ def _strong_correlations(
             pairs.append((str(col_a), str(col_b), r))
 
     pairs.sort(key=lambda t: abs(t[2]), reverse=True)
-    return pairs[: SETTINGS.LLM_MAX_CORRELATIONS]
+    return pairs[: SETTINGS.LLM_MAX_CORRELATIONS if limit is None else limit]

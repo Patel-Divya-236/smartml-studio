@@ -1,12 +1,14 @@
 import { useState, type ReactNode } from 'react';
 import { api, type Recommendation } from '../api/client';
+import { decidedBy, SourceBadge } from './PlannerNotice';
 import { Badge, Button, ConfidenceStars } from './ui';
 
 /**
  * The Recommend → Explain Why → User Decides pattern, in one component.
  *
- * The rule-based advisor decides; this only presents that decision. The "Explain in plain
- * English" button asks the language model to expand the rule's own reasoning — it never
+ * The recommendation arrives already decided — by the AI planner after the validator
+ * accepted it, or by a rule-based advisor — and the badge says which. This only presents
+ * it. "Explain in plain English" is a separate request that expands the reasoning; it never
  * produces or revises a recommendation, and a failure leaves the static explanation on
  * screen rather than surfacing an error.
  */
@@ -68,7 +70,10 @@ export function RecommendationCard({
             rating={recommendation.star_rating}
             score={recommendation.confidence_score}
           />
-          {recommendation.category && <Badge tone="neutral">{recommendation.category}</Badge>}
+          <div className="row" style={{ gap: 'var(--space-1)' }}>
+            <SourceBadge recommendation={recommendation} />
+            {recommendation.category && <Badge tone="neutral">{recommendation.category}</Badge>}
+          </div>
         </div>
       </div>
 
@@ -91,8 +96,7 @@ export function RecommendationCard({
             <div className="card card-compact" style={{ background: 'var(--surface-sunken)' }}>
               <p className="small prose">{narrative}</p>
               <p className="xs muted" style={{ marginTop: 'var(--space-3)' }}>
-                The recommendation was decided by the rule-based advisor. The language
-                model only explains it.
+                {decidedBy([recommendation])}
               </p>
             </div>
           )}

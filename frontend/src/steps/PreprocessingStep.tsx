@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, type ProfileResult, type Recommendation } from '../api/client';
+import {
+  api,
+  type ProfileResult,
+  type Recommendation,
+  type PlannerInfo,
+  sourceOf,
+} from '../api/client';
 import {
   Alert,
   Badge,
@@ -10,6 +16,7 @@ import {
   Page,
   Select,
 } from '../components/ui';
+import { decidedBy, PlannerNotice, SourceBadge } from '../components/PlannerNotice';
 import { usePipeline } from '../store/pipeline';
 
 const IMPUTERS = ['None', 'Mean', 'Median', 'Mode', 'KNN', 'Drop Column'];
@@ -55,6 +62,7 @@ export function PreprocessingStep() {
 
   const [profile, setProfile] = useState<ProfileResult | null>(null);
   const [byColumn, setByColumn] = useState<Record<string, Recommendation[]>>({});
+  const [planner, setPlanner] = useState<PlannerInfo | null>(null);
   const [llmAvailable, setLlmAvailable] = useState(false);
 
   const [testSize, setTestSize] = useState(20);
@@ -71,6 +79,7 @@ export function PreprocessingStep() {
       .then(([profileResult, advice, status]) => {
         setProfile(profileResult);
         setByColumn(advice.by_column);
+        setPlanner(advice.planner);
         setLlmAvailable(status.available);
 
         // Seed the selectors from the advisor's recommendations so the defaults on screen
@@ -143,7 +152,7 @@ export function PreprocessingStep() {
   if (!profile) {
     return (
       <Page title="Smart Preprocessing">
-        <Loading label="Loading column recommendations…" />
+        <Loading label="Planning this dataset's pipeline… (the AI plan is made once, then reused)" />
       </Page>
     );
   }
@@ -162,6 +171,7 @@ export function PreprocessingStep() {
     >
       <div className="stack">
         {error && <Alert tone="danger">{error}</Alert>}
+        <PlannerNotice planner={planner} section="preprocessing" />
 
         <div className="split">
           <div className="stack">
@@ -255,13 +265,18 @@ export function PreprocessingStep() {
                         </td>
                         <td>
                           {byColumn[row.column]?.length > 0 && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setExplaining(row.column)}
-                            >
-                              Why?
-                            </Button>
+                            <div className="row" style={{ gap: 'var(--space-1)', flexWrap: 'nowrap' }}>
+                              {byColumn[row.column].some((rec) => sourceOf(rec) === 'llm') && (
+                                <Badge tone="primary">AI</Badge>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setExplaining(row.column)}
+                              >
+                                Why?
+                              </Button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -353,7 +368,10 @@ function ColumnExplanation({
       <div className="stack">
         {recommendations.map((rec, index) => (
           <div key={index}>
-            <div className="strong small">{rec.label}</div>
+            <div className="row" style={{ gap: 'var(--space-2)' }}>
+              <span className="strong small">{rec.label}</span>
+              <SourceBadge recommendation={rec} />
+            </div>
             <p className="small secondary">{rec.reason}</p>
             <p className="small prose" style={{ marginTop: 'var(--space-2)' }}>
               {rec.why_explanation}
@@ -371,8 +389,7 @@ function ColumnExplanation({
           <div className="card card-compact" style={{ background: 'var(--surface-sunken)' }}>
             <p className="small prose">{narrative}</p>
             <p className="xs muted" style={{ marginTop: 'var(--space-3)' }}>
-              These steps were chosen by the rule-based advisor. The language model only
-              explains them.
+              {decidedBy(recommendations)}
             </p>
           </div>
         )}

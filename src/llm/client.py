@@ -80,6 +80,9 @@ class LLMClient:
         user: str,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        response_format: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> str | None:
         """Send a single-turn completion and return the text, or None on any failure.
 
@@ -88,6 +91,10 @@ class LLMClient:
             user: The payload to narrate.
             max_tokens: Output cap; defaults to SETTINGS.LLM_MAX_TOKENS.
             temperature: Sampling temperature; defaults to SETTINGS.LLM_TEMPERATURE.
+            response_format: e.g. ``{"type": "json_object"}`` to request JSON mode.
+            extra: Further provider-specific request fields, such as
+                ``reasoning_effort``. Optional by nature -- see `chat`.
+            timeout: Overrides the client's timeout for this one call.
 
         Returns:
             The assistant's text, or None if the LLM was unavailable or failed.
@@ -96,7 +103,14 @@ class LLMClient:
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
-        return self.chat(messages, max_tokens=max_tokens, temperature=temperature)
+        return self.chat(
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            response_format=response_format,
+            extra=extra,
+            timeout=timeout,
+        )
 
     def chat(
         self,
@@ -104,8 +118,18 @@ class LLMClient:
         *,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        response_format: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> str | None:
-        """Send a multi-turn conversation and return the reply text, or None on failure."""
+        """Send a multi-turn conversation and return the reply text, or None on failure.
+
+        `response_format` and `extra` are not part of every OpenAI-compatible API: JSON
+        mode and `reasoning_effort` exist on some providers and models and not others, and
+        an unknown field is answered with HTTP 400. When a request carrying them is
+        rejected that way, it is retried once without them, so asking for an optional
+        feature can cost a round trip but never the answer.
+        """
         if not self.is_available:
             self._last_error = "No LLM_API_KEY configured."
             logger.info("LLM call skipped: no API key configured.")
@@ -117,22 +141,23 @@ class LLMClient:
             "max_tokens": max_tokens or SETTINGS.LLM_MAX_TOKENS,
             "temperature": temperature if temperature is not None else SETTINGS.LLM_TEMPERATURE,
         }
+        optional: dict[str, Any] = dict(extra or {})
+        if response_format:
+            optional["response_format"] = response_format
 
-        try:
-            response = requests.post(
-                f"{self.base_url}/chat/completions",
-                headers=self._headers(),
-                json=payload,
-                timeout=self.timeout,
+        wait = timeout if timeout is not None else self.timeout
+        response = self._post({**payload, **optional}, wait)
+        if response is None:
+            return None
+
+        if response.status_code == 400 and optional:
+            logger.info(
+                "Provider rejected optional field(s) %s (HTTP 400); retrying without them.",
+                ", ".join(sorted(optional)),
             )
-        except requests.Timeout:
-            self._last_error = f"LLM request timed out after {self.timeout:.0f}s."
-            logger.warning(self._last_error)
-            return None
-        except requests.RequestException as exc:
-            self._last_error = f"Could not reach the LLM provider: {exc}"
-            logger.warning("LLM request failed: %s", exc)
-            return None
+            response = self._post(payload, wait)
+            if response is None:
+                return None
 
         return self._parse(response)
 
@@ -157,6 +182,25 @@ class LLMClient:
             return None
 
     # ── Internals ─────────────────────────────────────────────────────
+
+    def _post(self, payload: dict[str, Any], timeout: float) -> Any | None:
+        """POST one chat-completions request. Returns the response, or None on a
+        transport failure -- with `last_error` describing it."""
+        try:
+            return requests.post(
+                f"{self.base_url}/chat/completions",
+                headers=self._headers(),
+                json=payload,
+                timeout=timeout,
+            )
+        except requests.Timeout:
+            self._last_error = f"LLM request timed out after {timeout:.0f}s."
+            logger.warning(self._last_error)
+            return None
+        except requests.RequestException as exc:
+            self._last_error = f"Could not reach the LLM provider: {exc}"
+            logger.warning("LLM request failed: %s", exc)
+            return None
 
     def _headers(self) -> dict[str, str]:
         """Build request headers."""

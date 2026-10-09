@@ -143,9 +143,14 @@ class DatasetProfiler:
         # Skewness and Outliers for numeric columns
         skewness_dict = {}
         outliers_dict = {}
+        # The smallest value per numeric column. log1p is undefined below -1, and a scaler
+        # that produces NaN mid-pipeline fails far from the choice that caused it, so the
+        # planning validator checks this before a log transform is ever offered.
+        numeric_min: dict[str, float] = {}
         for col in numeric_cols:
             col_data = df[col].dropna()
             if len(col_data) > 0:
+                numeric_min[col] = float(col_data.min())
                 skewness_dict[col] = float(col_data.skew())
                 
                 # IQR Outlier Detection
@@ -206,6 +211,7 @@ class DatasetProfiler:
             "categorical_columns": categorical_cols,
             "high_cardinality_columns": high_cardinality_cols,
             "skewness": skewness_dict,
+            "numeric_min": numeric_min,
             "outliers": outliers_dict,
             "correlation_matrix": correlation_matrix,
             "memory_bytes": memory_bytes,

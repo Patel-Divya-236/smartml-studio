@@ -1,7 +1,18 @@
-import { useState } from 'react';
-import { api, type FeatureResult } from '../api/client';
-import { Alert, Badge, Button, Card, DataTable, Page, Stat, Switch } from '../components/ui';
+import { useEffect, useState } from 'react';
+import { api, type FeatureResult, type PlannerInfo, type Recommendation } from '../api/client';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  ConfidenceStars,
+  DataTable,
+  Page,
+  Stat,
+  Switch,
+} from '../components/ui';
 import { NextStep } from '../components/NextStep';
+import { PlannerNotice } from '../components/PlannerNotice';
 import { usePipeline } from '../store/pipeline';
 
 /**
@@ -10,6 +21,10 @@ import { usePipeline } from '../store/pipeline';
  * SelectKBest is the one worth naming: fitting it on the whole dataset selects features
  * using the test set's target values, which is direct label leakage rather than the
  * milder statistical kind.
+ *
+ * The AI plan's feature recommendations, once validated, switch their technique on with
+ * the planned parameters and show the planner's reason in that card. There is no
+ * rule-based feature advisor: with no plan every switch starts off, as it always did.
  */
 export function FeaturesStep() {
   const { markComplete } = usePipeline();
@@ -24,9 +39,52 @@ export function FeaturesStep() {
   const [selectK, setSelectK] = useState(false);
   const [k, setK] = useState(5);
 
+  const [advice, setAdvice] = useState<Recommendation[]>([]);
+  const [planner, setPlanner] = useState<PlannerInfo | null>(null);
+  const [adviceLoading, setAdviceLoading] = useState(true);
+
   const [result, setResult] = useState<FeatureResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .featureAdvice()
+      .then((response) => {
+        setAdvice(response.recommendations);
+        setPlanner(response.planner);
+        // Each validated recommendation carries the exact request fields to apply.
+        for (const rec of response.recommendations) {
+          const config: Record<string, unknown> = rec.metadata.config ?? {};
+          switch (rec.metadata.technique) {
+            case 'low_variance':
+              setLowVariance(true);
+              setThreshold(Number(config.low_variance_threshold ?? 0.01));
+              break;
+            case 'polynomial':
+              setPoly(true);
+              setDegree(Number(config.poly_degree ?? 2));
+              setInteractionOnly(Boolean(config.poly_interaction_only));
+              break;
+            case 'pca':
+              setPca(true);
+              setComponents(Number(config.pca_components ?? 2));
+              break;
+            case 'select_k_best':
+              setSelectK(true);
+              setK(Number(config.select_k_best_k ?? 5));
+              break;
+          }
+        }
+      })
+      // Advice is optional here: failing to load it leaves every switch off, which is
+      // exactly how this page worked before there was any advice to load.
+      .catch(() => setPlanner(null))
+      .finally(() => setAdviceLoading(false));
+  }, []);
+
+  const adviceFor = (technique: string) =>
+    advice.find((rec) => rec.metadata.technique === technique);
 
   const anyActive = lowVariance || poly || pca || selectK;
 
@@ -62,6 +120,12 @@ export function FeaturesStep() {
       <div className="stack">
         {error && <Alert tone="danger">{error}</Alert>}
 
+        {adviceLoading ? (
+          <Alert tone="info">Checking the AI plan for feature recommendations…</Alert>
+        ) : (
+          <PlannerNotice planner={planner} section="features" />
+        )}
+
         <Alert tone="info">
           Every step below is fitted on the training rows and replayed onto the test rows.
           Feature selection in particular must never see the test target.
@@ -73,6 +137,7 @@ export function FeaturesStep() {
             hint="Removes columns that barely change across rows and so carry almost no signal."
             actions={<Switch checked={lowVariance} onChange={setLowVariance} label="" />}
           >
+            <AdviceLine recommendation={adviceFor('low_variance')} />
             <div className="field">
               <label className="label">Variance threshold</label>
               <input
@@ -92,6 +157,7 @@ export function FeaturesStep() {
             hint="Multiplies numeric columns together so a linear model can express curved relationships."
             actions={<Switch checked={poly} onChange={setPoly} label="" />}
           >
+            <AdviceLine recommendation={adviceFor('polynomial')} />
             <div className="grid grid-2">
               <div className="field">
                 <label className="label">Degree</label>
@@ -121,6 +187,7 @@ export function FeaturesStep() {
             hint="Compresses correlated numeric columns into a smaller set of combined components."
             actions={<Switch checked={pca} onChange={setPca} label="" />}
           >
+            <AdviceLine recommendation={adviceFor('pca')} />
             <div className="field">
               <label className="label">Components</label>
               <input
@@ -139,6 +206,7 @@ export function FeaturesStep() {
             hint="Keeps the K features most statistically associated with the target."
             actions={<Switch checked={selectK} onChange={setSelectK} label="" />}
           >
+            <AdviceLine recommendation={adviceFor('select_k_best')} />
             <div className="field">
               <label className="label">K</label>
               <input
@@ -213,5 +281,25 @@ export function FeaturesStep() {
         )}
       </div>
     </Page>
+  );
+}
+
+/** The planner's reason for switching a technique on, shown inside its card. */
+function AdviceLine({ recommendation }: { recommendation?: Recommendation }) {
+  if (!recommendation) return null;
+  return (
+    <div
+      className="card card-compact stack-sm"
+      style={{ background: 'var(--surface-sunken)', marginBottom: 'var(--space-3)' }}
+    >
+      <div className="row-between">
+        <Badge tone="primary">AI recommends</Badge>
+        <ConfidenceStars
+          rating={recommendation.star_rating}
+          score={recommendation.confidence_score}
+        />
+      </div>
+      <p className="small secondary">{recommendation.reason}</p>
+    </div>
   );
 }

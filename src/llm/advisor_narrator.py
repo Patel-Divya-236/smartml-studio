@@ -1,14 +1,14 @@
-"""Expands a rule-based advisor recommendation into beginner-facing English.
+"""Expands an advisor recommendation into beginner-facing English.
 
 This is the layer a first-time user needs on the Preprocessing, Feature Engineering and
 Model Advisor pages: not just *what* was recommended, but what the technique actually
 does and why this particular column triggered it.
 
-The recommendation itself is produced entirely by the rule-based advisors. Confidence
-scores, thresholds and the choice of action are computed in `src/advisors/` and are not
-open to revision here -- the model is handed a decision and asked to explain it. That
-separation is deliberate: the confidence-scored advisor layer stays the system's own
-contribution rather than becoming a wrapper around a chat model.
+The recommendation was made before this runs -- either by a rule-based advisor in
+`src/advisors/`, or by the AI planner in `src/planning/` after its deterministic validator
+accepted it. Either way it is not open to revision here: the model is handed a decision
+and asked to explain it. Proposing and explaining are separate calls so that an
+explanation can never quietly change what the pipeline will do.
 """
 
 import logging
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 _SYSTEM_PROMPT = """You explain a data-preparation or modelling recommendation to \
 someone who knows their own data but has no machine-learning background.
 
-A rule-based advisor has already made this recommendation. Your job is to explain it, \
+This recommendation has already been made and checked. Your job is to explain it, \
 not to second-guess it.
 
 Cover exactly two things, in this order:

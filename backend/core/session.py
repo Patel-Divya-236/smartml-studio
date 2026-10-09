@@ -31,6 +31,10 @@ STAGE_KEYS: list[str] = [
     "dataset", "dataset_name", "target_column", "problem_type",
     # Analysis
     "profile",
+    # AI plan: one LLM call per profile, proposing preprocessing, feature engineering and
+    # models at once. Directly after "profile" because it is computed from nothing else,
+    # so a new target or dataset re-plans and nothing downstream does.
+    "ai_plan",
     # Visualization
     "viz_recommendations", "viz_selected",
     # Preprocessing
@@ -79,6 +83,10 @@ class Session:
         self.created_at = time.time()
         self.last_seen = time.time()
         self.data: dict[str, Any] = {key: None for key in STAGE_KEYS}
+        # Serialises the one expensive call a session makes outside training: the AI
+        # plan. The preprocessing and model advisors can be requested at the same time,
+        # and without this both would pay for a planning call and race to store it.
+        self.plan_lock = threading.Lock()
 
     def get(self, key: str) -> Any:
         """Return a stage value, or None when never set."""
