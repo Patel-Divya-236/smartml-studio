@@ -376,7 +376,8 @@ function ChartFor({
       )}
 
       <div className="row" style={{ marginTop: 'var(--space-3)', flexWrap: 'wrap' }}>
-        <Badge tone="neutral">{distribution.kind === 'histogram' ? 'histogram' : 'value counts'}</Badge>
+        {/* Histograms return earlier with their own layout, so this is always counts. */}
+        <Badge tone="neutral">value counts</Badge>
         {distribution.distinct !== undefined && (
           <Badge tone="neutral">{distribution.distinct.toLocaleString()} distinct</Badge>
         )}
