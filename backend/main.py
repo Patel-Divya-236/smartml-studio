@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Set before anything imports numpy, because OpenMP reads these once at load time and a
 # later change is ignored. Without them, OpenBLAS and LightGBM start one worker per host
 # core -- the whole host's, not this container's share -- and each worker's stack and
-# buffers come out of a 512MB budget. The explicit n_jobs arguments in model_trainer.py
+# buffers come out of the memory budget. The explicit n_jobs arguments in model_trainer.py
 # cover the libraries that carry their own thread pool; this covers the ones underneath.
 os.environ.setdefault("OMP_NUM_THREADS", os.environ.get("SMARTML_TRAINING_THREADS", "1"))
 os.environ.setdefault("OPENBLAS_NUM_THREADS", os.environ["OMP_NUM_THREADS"])

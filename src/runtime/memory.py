@@ -1,7 +1,7 @@
 """Resident memory checks, so training refuses a job instead of being killed mid-run.
 
-The deploy target is a 512MB instance. Going over it is not a slowdown: the host kills
-the process. Because sessions live in a module-level dict, that kill takes every uploaded
+A host has a fixed amount of memory (SETTINGS.MEMORY_BUDGET_MB). Going over it is not a
+slowdown: the host kills the process. Because sessions live in a module-level dict, that kill takes every uploaded
 dataset with it -- so a user who asked for one model too many comes back to "Complete the
 upload step first" and re-uploads a file that was fine.
 

@@ -16,11 +16,12 @@ progress over a WebSocket. It needs:
   (`backend/core/persistence.py`) are what let a restart resume instead of sending the user
   back to the upload step.
 
-A free tier that spins down after 15 minutes of inactivity and caps memory at 512 MB fails
-all three, which is what produced the slow uploads, missing visualizations, "Failed to
-fetch", and spurious "Complete the upload step first" errors in production.
+The project first ran on a free tier that spun down after 15 minutes of inactivity and
+capped memory at 512 MB. That failed all three, and produced slow uploads, missing
+visualizations, "Failed to fetch", and spurious "Complete the upload step first" errors.
+It now runs on one EC2 instance, set up as described below.
 
-## Backend on one small VM (recommended)
+## Backend on one small VM
 
 A 2 GB / 2 vCPU machine hosts this API — and a second project's API alongside it —
 behind Caddy, which handles TLS automatically. On AWS that is the $12/month Lightsail plan
@@ -57,7 +58,7 @@ Fill in `.env`:
 | `SMARTML_ALLOWED_ORIGINS` | The frontend's origin, e.g. `https://smartml-studio.vercel.app`. This project's Vercel preview URLs are already matched by pattern in `backend/main.py`. |
 | `LLM_API_KEY` | Optional. Powers the recommendation planner and the plain-English explanations. Without it the rule-based advisors recommend and explanations fall back to their own text. |
 | `LLM_MODEL` | Leave as the default. If narration starts failing, the id has probably been retired — run `python scripts_list_models.py` to see what the provider currently serves. |
-| `SMARTML_MEMORY_BUDGET_MB` | Resident memory at which training jobs are refused rather than risking an out-of-memory kill. `1300` for a 2 GB machine; keep it below the container limit in `docker-compose.yml`. The code default is 512, sized for the free tier. |
+| `SMARTML_MEMORY_BUDGET_MB` | Resident memory at which training jobs are refused rather than risking an out-of-memory kill. `1300` for a 2 GB machine; keep it below the container limit in `docker-compose.yml`. The code default is 512, a cautious value for a small host. |
 | `SMARTML_TRAINING_THREADS` | Threads each model may train on. `2` for a 2 vCPU machine. The code default is 1. |
 
 ### 4. Start
@@ -118,18 +119,6 @@ server, which is accurate.
 
 An Elastic IP is the alternative to DuckDNS, but AWS bills it by the hour even while the
 instance is stopped (about $3.60 a month), which costs more than the stopped instance.
-
-## Keeping the existing free-tier deployment
-
-`render.yaml` is still in the repository and still works, with two caveats worth knowing:
-
-- Checkpoints survive a process restart but **not** a spin-down, because the container's
-  filesystem is discarded with it. Sessions are still lost after an idle period.
-- 512 MB constrains dataset size regardless of the 50 MB upload cap.
-
-The frontend handles both cases better than it used to — it warms the backend on load and
-says so, retries idempotent requests, and explains a lost session rather than silently
-resetting — but it cannot manufacture memory or stop a spin-down.
 
 ## Verifying a deployment
 

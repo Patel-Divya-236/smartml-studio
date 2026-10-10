@@ -1,7 +1,7 @@
 # Single-host deployment for the SmartML Studio API.
 #
-# One small instance replaces the free-tier hosting whose 15-minute spin-down and 512MB
-# ceiling were destroying sessions mid-pipeline. Caddy terminates TLS and routes by
+# One small instance runs everything: the API needs a process that stays up, room in
+# memory for the datasets, and a disk that outlives restarts. Caddy terminates TLS and routes by
 # hostname, so a second project's backend joins by adding one service here and one block
 # in the Caddyfile — no second machine.
 
@@ -18,7 +18,7 @@ services:
       LLM_API_KEY: ${LLM_API_KEY}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.groq.com/openai/v1}
       LLM_MODEL: ${LLM_MODEL:-openai/gpt-oss-120b}
-      # Both default to the 512MB free-tier values in config/settings.py. Left unset here,
+      # Both have cautious defaults in config/settings.py (512MB, one thread). Left unset here,
       # a 2GB machine would still refuse training jobs at 512MB and train on one thread.
       # The budget sits under the container's memory limit below so the app refuses a job
       # before the kernel kills the container.
@@ -40,6 +40,11 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    environment:
+      # The Caddyfile's site address is {$API_DOMAIN}. Without this line the variable is
+      # empty inside the container, the site block has no address, and Caddy exits on
+      # start. `:?` makes compose refuse to start with a clear message instead.
+      API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN in .env to the hostname this API is served on}
     ports:
       - "80:80"
       - "443:443"

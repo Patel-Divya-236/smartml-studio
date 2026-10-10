@@ -22,19 +22,20 @@ class AppSettings:
     TRAINING_THREADS: int = int(os.environ.get("SMARTML_TRAINING_THREADS", "1"))
     """Threads each boosting library may use.
 
-    One by default because the deploy target grants 0.1 of a CPU: a library that reads
+    One by default, the safe choice on a small or CPU-throttled host: a library that reads
     the host's core count and starts twelve workers only adds contention there. Measured
     per model in a fresh process on a 40,000-row frame, the memory difference between one
     thread and twelve is small -- XGBoost 114MB against 111MB, CatBoost 17MB against 23MB
     -- so this is a CPU setting, not the fix for an out-of-memory kill. MEMORY_BUDGET_MB
-    below is that. Raise this on a host with real cores (see DEPLOYMENT.md).
+    below is that. The EC2 deployment sets 2 in docker-compose.yml, one per vCPU.
     """
 
     MEMORY_BUDGET_MB: int = int(os.environ.get("SMARTML_MEMORY_BUDGET_MB", "512"))
     """Resident memory this process may reach before a training job is refused.
 
-    Matches the free Render instance this deploys to. The point is not to save memory --
-    it is to fail in a way that keeps the session. Measured on a 50,000-row, 13MB upload,
+    The default suits a 512MB host, which is where the numbers below were measured; the
+    EC2 deployment sets 1300 in docker-compose.yml for its 2GB machine. The point is not to
+    save memory -- it is to fail in a way that keeps the session. On a 50,000-row, 13MB upload,
     the process reaches ~495MB by the end of training: 211MB of that is imports before any
     data arrives, ~39MB is the session itself, and the rest is what the boosting libraries
     allocate and never return (XGBoost alone accounts for ~114MB).
@@ -198,8 +199,8 @@ class AppSettings:
 
     ONEHOT_MAX_CARDINALITY: int = 20
     """Above this many categories, one-hot encoding is rejected by the validator: every
-    category becomes a column, and wide one-hot frames are what exhausted memory on the
-    512MB deploy target."""
+    category becomes a column, and wide one-hot frames are what exhausted memory on a
+    512MB host."""
 
     POLY_MAX_NUMERIC: int = 10
     """Polynomial features are only accepted up to this many numeric columns. Degree 2 on
@@ -207,8 +208,9 @@ class AppSettings:
 
     SVM_MAX_ROWS: int = 20_000
     """Above this many rows, the validator rejects an SVM recommendation as unsafe to run
-    by default. SVC is quadratic in rows: 50,000 rows took 374s on the deploy target,
-    longer than every other model combined. Users can still tick it by hand."""
+    by default. SVC is quadratic in rows: 50,000 rows took 47s on the 2-vCPU deployment,
+    longer than the other seven models combined, and over six minutes on a throttled
+    0.1-CPU host. Users can still tick it by hand."""
 
     MIN_RECOMMENDED_MODELS: int = 3
     """When fewer validated models than this survive, the rule ranking tops the list up."""

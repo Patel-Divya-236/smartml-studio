@@ -473,7 +473,7 @@ def test_unknown_and_unplottable_columns_are_refused_not_drawn():
 
 # -- 7. Training refuses what will not fit -------------------------------------
 #
-# The instance has 512MB. Going over does not slow training down, it kills the process,
+# A host has a fixed memory budget. Going over does not slow training down, it kills the process,
 # and because sessions live in a module-level dict that takes every uploaded dataset with
 # it -- so one model too many sends every user back to "Complete the upload step first".
 # Measured on a 50,000-row upload the process reaches ~495MB by the end of training, so

@@ -12,9 +12,9 @@ What gets rejected, and why it matters:
 * Type errors: scaling a text column, averaging a category, encoding a number. The
   pipeline would raise mid-run, far from the choice that caused it.
 * Values the transform cannot take: log1p at or below -1 produces NaN.
-* Choices that are valid but unsafe on this deploy target: one-hot encoding hundreds of
+* Choices that are valid but unsafe on a small host: one-hot encoding hundreds of
   categories, polynomial expansion into hundreds of columns, SVM on tens of thousands of
-  rows. Each of those has either exhausted the 512MB instance or run for minutes.
+  rows. Each of those has either exhausted a 512MB instance or run for minutes.
 * Contradictions within the plan: two scalers for one column, scaling a column the same
   plan drops, the prediction target transformed like a feature.
 """
@@ -385,7 +385,7 @@ def _validate_models(
             rejected.append(Rejection("models", name,
                                       f"{rows:,} rows is above the {SETTINGS.SVM_MAX_ROWS:,}-row limit "
                                       "for SVM, whose training time grows with the square of the rows "
-                                      "(50,000 rows took over six minutes on the deployed server). It "
+                                      "(at 50,000 rows it takes longer than every other model combined). It "
                                       "can still be ticked by hand on the training step."))
             continue
 
