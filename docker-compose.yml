@@ -17,7 +17,13 @@ services:
       SMARTML_SESSION_DIR: /data/sessions
       LLM_API_KEY: ${LLM_API_KEY}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.groq.com/openai/v1}
-      LLM_MODEL: ${LLM_MODEL:-llama-3.3-70b-versatile}
+      LLM_MODEL: ${LLM_MODEL:-openai/gpt-oss-120b}
+      # Both default to the 512MB free-tier values in config/settings.py. Left unset here,
+      # a 2GB machine would still refuse training jobs at 512MB and train on one thread.
+      # The budget sits under the container's memory limit below so the app refuses a job
+      # before the kernel kills the container.
+      SMARTML_MEMORY_BUDGET_MB: ${SMARTML_MEMORY_BUDGET_MB:-1300}
+      SMARTML_TRAINING_THREADS: ${SMARTML_TRAINING_THREADS:-2}
     volumes:
       # Named volume, not a bind mount: this is what makes session checkpoints outlive a
       # container restart or a redeploy.
@@ -43,6 +49,36 @@ services:
       - caddy-config:/config
     depends_on:
       - smartml-api
+
+  # Keeps a free DuckDNS hostname pointing at this machine.
+  #
+  # An EC2 instance that is stopped and started gets a new public IP every time, and the
+  # frontend is built with one fixed API address. Without this, each start would mean a
+  # new address, a Vercel variable change and a frontend rebuild. With it, the instance
+  # re-registers its own IP within seconds of booting and nothing else has to change.
+  # An Elastic IP solves the same problem but is billed even while the instance is off.
+  #
+  # Leaving `ip=` empty makes DuckDNS use the address the request came from, which is this
+  # machine's public IP. With no token configured the service idles and does nothing, so
+  # hosts with a fixed IP or their own domain can ignore it.
+  duckdns:
+    image: curlimages/curl:latest
+    restart: unless-stopped
+    environment:
+      DUCKDNS_SUBDOMAIN: ${DUCKDNS_SUBDOMAIN:-}
+      DUCKDNS_TOKEN: ${DUCKDNS_TOKEN:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -z "$$DUCKDNS_TOKEN" ] || [ -z "$$DUCKDNS_SUBDOMAIN" ]; then
+          echo "DuckDNS not configured; nothing to update."
+          while true; do sleep 3600; done
+        fi
+        while true; do
+          result=$$(curl -fsS --max-time 20 "https://www.duckdns.org/update?domains=$$DUCKDNS_SUBDOMAIN&token=$$DUCKDNS_TOKEN&ip=" || echo "unreachable")
+          echo "$$(date -u +%FT%TZ) duckdns update for $$DUCKDNS_SUBDOMAIN: $$result"
+          sleep 300
+        done
 
 volumes:
   smartml-sessions:
