@@ -507,13 +507,6 @@ export interface Recommendation {
   metadata: Record<string, any>;
 }
 
-/** Where a recommendation came from: the AI planner (validated) or a rule-based advisor. */
-export type RecommendationSource = 'llm' | 'rule';
-
-export function sourceOf(rec: Recommendation): RecommendationSource {
-  return rec.metadata?.source === 'llm' ? 'llm' : 'rule';
-}
-
 /** One proposal the deterministic validator refused, with the reason. */
 export interface PlanRejection {
   section: 'preprocessing' | 'feature_engineering' | 'models';

@@ -1,14 +1,12 @@
 import { useState, type ReactNode } from 'react';
 import { api, type Recommendation } from '../api/client';
-import { decidedBy, SourceBadge } from './PlannerNotice';
 import { Badge, Button, ConfidenceStars } from './ui';
 
 /**
  * The Recommend → Explain Why → User Decides pattern, in one component.
  *
- * The recommendation arrives already decided — by the AI planner after the validator
- * accepted it, or by a rule-based advisor — and the badge says which. This only presents
- * it. "Explain in plain English" is a separate request that expands the reasoning; it never
+ * The recommendation arrives already decided and validated; this only presents it.
+ * "Explain in plain English" is a separate request that expands the reasoning; it never
  * produces or revises a recommendation, and a failure leaves the static explanation on
  * screen rather than surfacing an error.
  */
@@ -70,10 +68,7 @@ export function RecommendationCard({
             rating={recommendation.star_rating}
             score={recommendation.confidence_score}
           />
-          <div className="row" style={{ gap: 'var(--space-1)' }}>
-            <SourceBadge recommendation={recommendation} />
-            {recommendation.category && <Badge tone="neutral">{recommendation.category}</Badge>}
-          </div>
+          {recommendation.category && <Badge tone="neutral">{recommendation.category}</Badge>}
         </div>
       </div>
 
@@ -95,9 +90,6 @@ export function RecommendationCard({
           {narrative && (
             <div className="card card-compact" style={{ background: 'var(--surface-sunken)' }}>
               <p className="small prose">{narrative}</p>
-              <p className="xs muted" style={{ marginTop: 'var(--space-3)' }}>
-                {decidedBy([recommendation])}
-              </p>
             </div>
           )}
 

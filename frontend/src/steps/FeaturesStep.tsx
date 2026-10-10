@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, type FeatureResult, type PlannerInfo, type Recommendation } from '../api/client';
+import { api, type FeatureResult, type Recommendation } from '../api/client';
 import {
   Alert,
   Badge,
@@ -12,7 +12,6 @@ import {
   Switch,
 } from '../components/ui';
 import { NextStep } from '../components/NextStep';
-import { PlannerNotice } from '../components/PlannerNotice';
 import { usePipeline } from '../store/pipeline';
 
 /**
@@ -22,9 +21,9 @@ import { usePipeline } from '../store/pipeline';
  * using the test set's target values, which is direct label leakage rather than the
  * milder statistical kind.
  *
- * The AI plan's feature recommendations, once validated, switch their technique on with
- * the planned parameters and show the planner's reason in that card. There is no
- * rule-based feature advisor: with no plan every switch starts off, as it always did.
+ * Validated feature recommendations switch their technique on with the recommended
+ * parameters and show the reason in that card. With none, every switch starts off, as
+ * it always did.
  */
 export function FeaturesStep() {
   const { markComplete } = usePipeline();
@@ -40,8 +39,6 @@ export function FeaturesStep() {
   const [k, setK] = useState(5);
 
   const [advice, setAdvice] = useState<Recommendation[]>([]);
-  const [planner, setPlanner] = useState<PlannerInfo | null>(null);
-  const [adviceLoading, setAdviceLoading] = useState(true);
 
   const [result, setResult] = useState<FeatureResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -52,7 +49,6 @@ export function FeaturesStep() {
       .featureAdvice()
       .then((response) => {
         setAdvice(response.recommendations);
-        setPlanner(response.planner);
         // Each validated recommendation carries the exact request fields to apply.
         for (const rec of response.recommendations) {
           const config: Record<string, unknown> = rec.metadata.config ?? {};
@@ -79,8 +75,7 @@ export function FeaturesStep() {
       })
       // Advice is optional here: failing to load it leaves every switch off, which is
       // exactly how this page worked before there was any advice to load.
-      .catch(() => setPlanner(null))
-      .finally(() => setAdviceLoading(false));
+      .catch(() => setAdvice([]));
   }, []);
 
   const adviceFor = (technique: string) =>
@@ -119,12 +114,6 @@ export function FeaturesStep() {
     >
       <div className="stack">
         {error && <Alert tone="danger">{error}</Alert>}
-
-        {adviceLoading ? (
-          <Alert tone="info">Checking the AI plan for feature recommendations…</Alert>
-        ) : (
-          <PlannerNotice planner={planner} section="features" />
-        )}
 
         <Alert tone="info">
           Every step below is fitted on the training rows and replayed onto the test rows.
@@ -284,7 +273,7 @@ export function FeaturesStep() {
   );
 }
 
-/** The planner's reason for switching a technique on, shown inside its card. */
+/** Why a technique was switched on, shown inside its card. */
 function AdviceLine({ recommendation }: { recommendation?: Recommendation }) {
   if (!recommendation) return null;
   return (
@@ -293,7 +282,7 @@ function AdviceLine({ recommendation }: { recommendation?: Recommendation }) {
       style={{ background: 'var(--surface-sunken)', marginBottom: 'var(--space-3)' }}
     >
       <div className="row-between">
-        <Badge tone="primary">AI recommends</Badge>
+        <Badge tone="primary">Recommended</Badge>
         <ConfidenceStars
           rating={recommendation.star_rating}
           score={recommendation.confidence_score}

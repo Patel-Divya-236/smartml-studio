@@ -41,8 +41,8 @@ def _fallback_imputer(column: Any, profile: dict[str, Any]) -> Recommendation | 
     return Recommendation(
         label=PREPROCESSING_LABELS[action].format(column=column),
         confidence_score=0.6,
-        reason=(f"The AI plan kept '{column}' but did not say how to fill its {missing:.1f}% "
-                f"missing values; {action} is the safe default."),
+        reason=(f"'{column}' is kept and has {missing:.1f}% missing values with no fill "
+                f"chosen for it; {action} is the safe default."),
         why_explanation=TECHNIQUE_EXPLANATIONS[action],
         category="imputation",
         metadata={"column": column, "action": action, "source": RULE},

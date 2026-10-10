@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, type PlannerInfo, type Recommendation } from '../api/client';
-import { PlannerNotice } from '../components/PlannerNotice';
+import { api, type Recommendation } from '../api/client';
 import { RecommendationCard } from '../components/RecommendationCard';
 import { Alert, Badge, Button, Card, Loading, Page } from '../components/ui';
 import { usePipeline } from '../store/pipeline';
@@ -17,7 +16,6 @@ export function ModelAdvisorStep() {
   const { completeAndAdvance } = usePipeline();
   const [recommendations, setRecommendations] = useState<Recommendation[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [planner, setPlanner] = useState<PlannerInfo | null>(null);
   const [llmAvailable, setLlmAvailable] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +23,6 @@ export function ModelAdvisorStep() {
     Promise.all([api.modelAdvice(), api.llmStatus()])
       .then(([advice, status]) => {
         setRecommendations(advice.recommendations);
-        setPlanner(advice.planner);
         setLlmAvailable(status.available);
         // Default to every recommendation checked: the validator and the rules have
         // already filtered out models that are invalid or unsafe for this dataset.
@@ -84,8 +81,6 @@ export function ModelAdvisorStep() {
       }
     >
       <div className="stack">
-        <PlannerNotice planner={planner} section="models" />
-
         <div className="row-between">
           <Badge tone="accent">{recommendations.length} recommended</Badge>
           <div className="row">
